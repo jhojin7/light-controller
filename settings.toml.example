@@ -1,0 +1,17 @@
+# Home Assistant Light Mode Controller
+# Adafruit ESP32-S3 Reverse TFT Feather (product 5691)
+# CircuitPython
+
+# Edit this file with your WiFi and Home Assistant details.
+# Save it as settings.toml (not settings.toml.example) on the CIRCUITPY drive.
+
+CIRCUITPY_WIFI_SSID = "YourWiFiName"
+CIRCUITPY_WIFI_PASSWORD = "YourWiFiPassword"
+
+# Home Assistant URL (no trailing slash)
+# Examples: "http://homeassistant.local:8123" or "http://192.168.1.50:8123"
+HA_URL = "http://homeassistant.local:8123"
+
+# Long-lived access token from Home Assistant
+# Profile (bottom left) → Long-Lived Access Tokens → Create Token
+HA_TOKEN = "your_long_lived_access_token_here"

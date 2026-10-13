@@ -1,0 +1,16 @@
+# Local Wi-Fi credentials and Home Assistant tokens
+settings.toml
+.env
+.env.*
+!.env.example
+
+# CircuitPython dependencies are installed on the board separately
+lib/
+*.mpy
+
+# Generated packages and Python/macOS files
+dist/
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
