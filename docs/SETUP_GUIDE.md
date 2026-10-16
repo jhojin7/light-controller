@@ -48,7 +48,7 @@ Simple guide to get your physical light controller working with Home Assistant.
 4. From the project folder or deployment ZIP, copy these files onto the root of the **CIRCUITPY** drive:
    - `code.py`
    - `boot.py`
-   - `config.json`
+   - `config.json` (copy `config.json.example` with this name when using the source repository)
    - `settings.toml.example`
 
 5. Rename `settings.toml.example` to `settings.toml`.
@@ -94,6 +94,10 @@ You can change the default modes or add more entries to the list:
 - `brightness` — 0 to 255 (255 = full brightness)
 - `kelvin` — color temperature (lower = warmer/yellower, higher = cooler/bluer). Common values: 2200 (very warm), 2700 (warm), 4000 (neutral), 5000–6500 (cool).
 
+The fourth default mode is `{"name": "OFF", "action": "off"}`. It needs no
+brightness or Kelvin value. Select it with D1 and press D2 to turn the light off;
+select and apply any on preset to turn it back on.
+
 Example:
 ```json
 {
@@ -101,7 +105,8 @@ Example:
   "modes": [
     {"name": "DAY", "brightness": 255, "kelvin": 5000},
     {"name": "EVENING", "brightness": 100, "kelvin": 2700},
-    {"name": "SLEEP", "brightness": 20, "kelvin": 2200}
+    {"name": "SLEEP", "brightness": 20, "kelvin": 2200},
+    {"name": "OFF", "action": "off"}
   ]
 }
 ```

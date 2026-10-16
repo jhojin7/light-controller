@@ -1,5 +1,6 @@
 # Local Wi-Fi credentials and Home Assistant tokens
 settings.toml
+config.json
 .env
 .env.*
 !.env.example

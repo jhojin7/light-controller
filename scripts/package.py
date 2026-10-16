@@ -14,6 +14,8 @@ FILES = (
     "README.md",
     "LICENSE",
     "docs/SETUP_GUIDE.md",
+    "docs/FEATURE_MAP.md",
+    "docs/TESTING.md",
     "assets/ui-preview.png",
 )
 
@@ -26,7 +28,8 @@ def package_project():
     try:
         with ZipFile(temporary, "w", compression=ZIP_DEFLATED) as archive:
             for name in FILES:
-                archive.write(ROOT / name, arcname=name)
+                source = 'config.json.example' if name == 'config.json' else name
+                archive.write(ROOT / source, arcname=name)
         temporary.replace(destination)
     finally:
         temporary.unlink(missing_ok=True)

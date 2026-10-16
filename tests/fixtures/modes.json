@@ -1,5 +1,5 @@
 {
-  "entity_id": "light.your_light_name",
+  "entity_id": "light.e2e_fixture",
   "modes": [
     {
       "name": "DAY",

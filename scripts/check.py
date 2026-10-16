@@ -8,10 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def check_project():
-    for path in (ROOT / "code.py", ROOT / "boot.py", *sorted((ROOT / "scripts").glob("*.py"))):
+    for path in (ROOT / "code.py", ROOT / "boot.py", *sorted((ROOT / "scripts").glob("*.py")), *sorted((ROOT / 'tests').rglob('*.py'))):
         ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
-    config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    config_path = ROOT / 'config.json.example'
+    if not config_path.exists():
+        config_path = ROOT / 'config.json'
+    config = json.loads(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError("config.json must contain an object")
     entity = config.get("entity_id")
@@ -26,14 +29,19 @@ def check_project():
         name = mode.get("name")
         if not isinstance(name, str) or not name.strip():
             raise ValueError(f"Mode {index} needs a nonempty name")
+        action = mode.get('action', 'on')
+        if action not in ('on', 'off'):
+            raise ValueError(f"Mode {index}: action must be on or off")
+        if action == 'off':
+            continue
         brightness = mode.get("brightness")
         if type(brightness) is not int or not 0 <= brightness <= 255:
             raise ValueError(f"Mode {index}: brightness must be an integer from 0 to 255")
         kelvin = mode.get("kelvin")
         if type(kelvin) is not int or kelvin <= 0:
             raise ValueError(f"Mode {index}: kelvin must be a positive integer")
-        if "icon" in mode and mode["icon"] not in ("sun", "sunset", "moon"):
-            raise ValueError(f"Mode {index}: icon must be sun, sunset, or moon")
+        if "icon" in mode and mode["icon"] not in ("sun", "sunset", "moon", "off"):
+            raise ValueError(f"Mode {index}: icon must be sun, sunset, moon, or off")
 
     template = (ROOT / "settings.toml.example").read_text(encoding="utf-8")
     assignments = {

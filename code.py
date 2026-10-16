@@ -34,6 +34,7 @@ def load_config():
                 {"name": "DAY", "brightness": 255, "kelvin": 5000},
                 {"name": "EVENING", "brightness": 128, "kelvin": 2700},
                 {"name": "SLEEP", "brightness": 25, "kelvin": 2200},
+                {"name": "OFF", "action": "off"},
             ],
         }
 
@@ -191,6 +192,11 @@ ICON_ROWS = {
         '.##.......#..', '.##..........', '.##..........', '.###.........',
         '..###......#.', '..#####...##.', '...########..', '....######...', '.............',
     ),
+    'off': (
+        '......#......', '......#......', '......#......', '..##..#..##..',
+        '.##...#...##.', '.#....#....#.', '.#....#....#.', '.#.........#.',
+        '.##.......##.', '..##.....##..', '...#######...', '.....###.....', '.............',
+    ),
 }
 
 
@@ -256,6 +262,8 @@ def set_small_text(lbl, text):
 
 
 def mode_style(mode):
+    if mode.get('action', 'on') == 'off':
+        return 'off', 0xAAB7C9
     name = str(mode['name']).upper()
     icon = str(mode.get('icon', '')).lower()
     if icon not in icon_bitmaps:
@@ -267,7 +275,7 @@ def mode_style(mode):
             icon = 'sun'
         else:
             icon = 'sun' if mode['kelvin'] >= 4000 else 'sunset' if mode['kelvin'] >= 2500 else 'moon'
-    return icon, {'sun': AMBER, 'sunset': 0xFFB580, 'moon': 0xB6BEFF}[icon]
+    return icon, {'sun': AMBER, 'sunset': 0xFFB580, 'moon': 0xB6BEFF, 'off': 0xAAB7C9}[icon]
 
 
 # Buttons
@@ -278,6 +286,7 @@ btn_confirm.switch_to_input(pull=digitalio.Pull.DOWN)
 
 selected_index = 0
 applied_mode = "--"
+applied_action = None
 status_text = "Ready"
 wifi_ok = False
 requests = None
@@ -292,9 +301,10 @@ def update_display():
         mode_icon.bitmap = icon_bitmaps[icon]
         icon_palette[1] = accent
         mode_title.set_text(mode['name'], accent)
-        bright_pct = int(mode['brightness'] * 100 / 255)
+        is_off = mode.get('action', 'on') == 'off'
+        bright_pct = 0 if is_off else int(mode['brightness'] * 100 / 255)
         brightness_text.set_text(f"{bright_pct}%")
-        kelvin_text.set_text(f"{mode['kelvin']}K")
+        kelvin_text.set_text('--' if is_off else f"{mode['kelvin']}K")
         page_text.set_text(f"{selected_index + 1}/{len(modes)}", MUTED)
         wifi_palette[1] = GREEN if wifi_ok else MUTED
         message = {'Ready': 'D2 TO APPLY', 'Selected': 'D2 TO APPLY', 'OK': 'APPLIED'}.get(status_text, status_text)
@@ -307,7 +317,7 @@ def update_display():
             status_label.color = AMBER
         else:
             status_label.color = MUTED
-        set_small_text(applied_label, f"On: {applied_mode}")
+        set_small_text(applied_label, 'LIGHT OFF' if applied_action == 'off' else f"On: {applied_mode}")
         applied_label.color = GREEN if applied_mode == mode['name'] else MUTED
         display.refresh(minimum_frames_per_second=0)
     finally:
@@ -335,7 +345,7 @@ def connect_wifi():
         return False
 
 def apply_mode():
-    global applied_mode, status_text
+    global applied_mode, applied_action, status_text
     if not wifi_ok or not requests or not ha_token:
         status_text = "No token"
         update_display()
@@ -343,17 +353,21 @@ def apply_mode():
     mode = modes[selected_index]
     status_text = "Sending..."
     update_display()
-    url = f"{ha_url}/api/services/light/turn_on"
+    is_off = mode.get('action', 'on') == 'off'
+    service = 'turn_off' if is_off else 'turn_on'
+    url = f"{ha_url}/api/services/light/{service}"
     headers = {"Authorization": f"Bearer {ha_token}", "Content-Type": "application/json"}
-    payload = {
-        "entity_id": entity_id,
-        "brightness": mode["brightness"],
-        "color_temp_kelvin": mode["kelvin"],
-    }
+    payload = {"entity_id": entity_id}
+    if not is_off:
+        payload.update({
+            "brightness": mode["brightness"],
+            "color_temp_kelvin": mode["kelvin"],
+        })
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=10)
         if response.status_code in (200, 201):
             applied_mode = mode["name"]
+            applied_action = 'off' if is_off else 'on'
             status_text = "OK"
         else:
             status_text = f"Err {response.status_code}"
@@ -363,24 +377,31 @@ def apply_mode():
         print(e)
     update_display()
 
-status_text = "Connecting"
-update_display()
-connect_wifi()
-status_text = "Ready" if wifi_ok else "WiFi fail"
-update_display()
+def run():
+    """Start the controller; tests can supply external buttons, clock and network."""
+    global selected_index, status_text
+    status_text = "Connecting"
+    update_display()
+    connect_wifi()
+    status_text = "Ready" if wifi_ok else "WiFi fail"
+    update_display()
 
-last_cycle = 0
-last_confirm = 0
-DEBOUNCE = 0.3
+    last_cycle = 0
+    last_confirm = 0
+    DEBOUNCE = 0.3
 
-while True:
-    now = time.monotonic()
-    if btn_cycle.value and (now - last_cycle) > DEBOUNCE:
-        selected_index = (selected_index + 1) % len(modes)
-        status_text = "Selected"
-        last_cycle = now
-        update_display()
-    if btn_confirm.value and (now - last_confirm) > DEBOUNCE:
-        apply_mode()
-        last_confirm = now
-    time.sleep(0.05)
+    while True:
+        now = time.monotonic()
+        if btn_cycle.value and (now - last_cycle) > DEBOUNCE:
+            selected_index = (selected_index + 1) % len(modes)
+            status_text = "Selected"
+            last_cycle = now
+            update_display()
+        if btn_confirm.value and (now - last_confirm) > DEBOUNCE:
+            apply_mode()
+            last_confirm = now
+        time.sleep(0.05)
+
+
+if __name__ == "__main__":
+    run()

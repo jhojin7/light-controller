@@ -1,0 +1,24 @@
+{
+  "entity_id": "light.your_light_name",
+  "modes": [
+    {
+      "name": "DAY",
+      "brightness": 255,
+      "kelvin": 5000
+    },
+    {
+      "name": "EVENING",
+      "brightness": 128,
+      "kelvin": 2700
+    },
+    {
+      "name": "SLEEP",
+      "brightness": 25,
+      "kelvin": 2200
+    },
+    {
+      "name": "OFF",
+      "action": "off"
+    }
+  ]
+}
