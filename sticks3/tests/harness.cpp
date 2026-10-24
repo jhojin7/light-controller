@@ -39,13 +39,12 @@ int main() {
     };
     light::Screen screen;
     auto frames = result["frames"].to<JsonArray>();
-    uint32_t now = 1000;
     for (JsonVariant frame : spec["frames"].as<JsonArray>()) {
-      if (!frame["time"].isNull()) now = uint32_t(frame["time"].as<double>() * 1000 + 0.5);
-      if (!frame["millis"].isNull()) now = frame["millis"].as<uint32_t>();
-      bool inputAccepted = c.buttons(now, frame["cycle"] | false, frame["confirm"] | false, send);
+      bool inputAccepted = frame["cycle"] | false;
+      if (inputAccepted) c.next();
+      if (frame["confirm"] | false) { c.apply(send); inputAccepted = true; }
       if (frame["render_status"].is<const char*>()) c.status = frame["render_status"].as<std::string>();
-      screen.render(c);
+      screen.render(c, spec["hold_progress"] | 0u);
       auto output = frames.add<JsonObject>();
       auto visible = output["visible"].to<JsonArray>();
       for (auto& text : screen.visible) visible.add(text);
@@ -54,7 +53,6 @@ int main() {
       output["clipped"] = screen.clipped;
       output["icon"] = light::modeIcon(c.mode());
       output["redraw"] = inputAccepted;
-      now += 1000;
     }
     if (spec["dump"].is<const char*>()) {
       std::ofstream file(spec["dump"].as<const char*>(), std::ios::binary);

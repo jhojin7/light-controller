@@ -1,18 +1,20 @@
 # Light Controller
 
 A physical Home Assistant light controller with DAY, EVENING, SLEEP and OFF
-presets. Select a mode on the screen, then press the apply button to send it.
+presets. Select a mode on the screen, then apply it to send it.
 
 | Board | Firmware | Next / apply | Setup |
 | --- | --- | --- | --- |
 | Adafruit ESP32-S3 Reverse TFT Feather (5691) | CircuitPython, repository root | D1 / D2 | [Feather guide](docs/SETUP_GUIDE.md) |
-| M5Stack StickS3 (K150) | Arduino C++, `sticks3/` | A / B | [StickS3 guide](https://github.com/jhojin7/light-controller/tree/main/sticks3) |
+| M5Stack StickS3 (K150) | Arduino C++, `sticks3/` | Tap A / hold A; B sleep/wake | [StickS3 guide](sticks3/README.md) |
 
 Both versions have a 135 × 240 portrait display with dotted headings, mode icons,
 brightness, color temperature and a page counter. StickS3 also shows battery
 percentage, charging state and a low-battery indicator.
+Pick up the StickS3 or press B to wake it. It reconnects to Wi-Fi automatically
+while you browse and sleeps after inactivity. See its guide for timing and controls.
 
-![StickS3 mode cards](https://raw.githubusercontent.com/jhojin7/light-controller/main/sticks3/assets/ui-preview.png)
+![StickS3 mode cards](sticks3/assets/ui-preview.png)
 
 ```mermaid
 flowchart LR

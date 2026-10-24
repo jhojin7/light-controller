@@ -100,30 +100,18 @@ void Controller::apply(const Send& send) {
   if (!hasToken) { status = "No token"; return; }
   status = "Sending...";
   int code = send(mode(), config.entity);
+  recordResult(mode(), code);
+}
+
+void Controller::recordResult(const Mode& mode, int code) {
   if (code == 200 || code == 201) {
-    applied = mode().name;
-    appliedOff = mode().off;
+    applied = mode.name;
+    appliedOff = mode.off;
     hasApplied = true;
     status = "OK";
   } else {
     status = code > 0 ? "Err " + std::to_string(code) : "Failed";
   }
-}
-
-bool Controller::buttons(uint32_t now, bool cycle, bool confirm, const Send& send) {
-  bool accepted = false;
-  // Unsigned subtraction also handles the millis() wrap after ~49 days.
-  if (cycle && uint32_t(now - lastCycle_) > 300) {
-    next();
-    lastCycle_ = now;
-    accepted = true;
-  }
-  if (confirm && uint32_t(now - lastConfirm_) > 300) {
-    lastConfirm_ = now;
-    apply(send);
-    accepted = true;
-  }
-  return accepted;
 }
 
 std::string Controller::appliedText() const {

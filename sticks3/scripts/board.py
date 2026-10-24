@@ -16,8 +16,8 @@ class Board:
     def __init__(self, port=None):
         self.port = serial.Serial(port or discover(), 115200, timeout=0.2, write_timeout=2, exclusive=True)
 
-    def call(self, command, timeout=30):
-        self.port.write(json.dumps({"cmd": command}).encode() + b"\n")
+    def call(self, command, timeout=40, **parameters):
+        self.port.write(json.dumps({"cmd": command, **parameters}).encode() + b"\n")
         deadline = time.monotonic() + timeout
         data = bytearray()
         while time.monotonic() < deadline:

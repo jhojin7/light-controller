@@ -33,19 +33,10 @@ def run_cases(binary):
          "frames": [{"visible": ["100%"]}]},
         {"name": "battery-low", "battery": 7, "frames": [{"visible": ["7%"]}]},
         {"name": "battery-charging", "battery": 92, "charging": True, "frames": [{"visible": ["92%"]}]},
-        {"name": "reapply-same-mode-redraws-result", "frames": [
-            {"time": 0.31, "confirm": True, "redraw": True, "visible": ["APPLIED"]},
-            {"time": 0.4, "confirm": True, "redraw": False},
-            {"time": 0.7, "confirm": True, "redraw": True, "visible": ["APPLIED"]}],
-         "posts": [{"entity_id": "light.e2e_fixture", "brightness": 255, "color_temp_kelvin": 5000}] * 2},
         {"name": "invalid-config-never-sends", "config": {"entity_id": "switch.wrong", "modes": fixture["modes"]},
          "frames": [{"confirm": True, "visible": ["ERROR", "CONFIG ERROR"]}]},
         {"name": "invalid-brightness-never-sends", "config": {"entity_id": "light.fixture", "modes": [{"name": "BAD", "brightness": 256, "kelvin": 4000}]},
          "frames": [{"confirm": True, "visible": ["ERROR", "CONFIG ERROR"]}]},
-        {"name": "millis-rollover", "frames": [
-            {"millis": 4294967200, "cycle": True, "visible": ["EVENING"]},
-            {"millis": 100, "cycle": True, "visible": ["EVENING"]},
-            {"millis": 250, "cycle": True, "visible": ["SLEEP"]}]},
         {"name": "explicit-icon", "config": {"entity_id": "light.fixture", "modes": [{"name": "DAY", "brightness": 255, "kelvin": 5000, "icon": "moon"}]},
          "frames": [{"icon": "moon"}]},
     ]
@@ -75,8 +66,20 @@ def run_cases(binary):
     return len(cases)
 
 
+def interaction_checks():
+    candidates = list((ROOT / ".pio/libdeps").glob("*/ArduinoJson/src/ArduinoJson.h"))
+    output = ROOT / ".local/interaction-tests"
+    subprocess.run(["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-O2",
+                    "-I" + str(ROOT / "include"), "-I" + str(candidates[0].parent),
+                    str(ROOT / "src/controller.cpp"), str(ROOT / "src/interaction.cpp"),
+                    str(ROOT / "src/screen.cpp"), str(ROOT / "tests/interaction_test.cpp"),
+                    "-o", str(output)], check=True)
+    subprocess.run([str(output)], check=True)
+
+
 if __name__ == "__main__":
     count = run_cases(build())
+    interaction_checks()
     suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern="test_*.py")
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     if not result.wasSuccessful():

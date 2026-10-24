@@ -62,7 +62,7 @@ void Screen::small(std::string value, int center, int y, uint32_t color) {
   text(value, center, y + 3, width - 16, 1, 1, color);
 }
 
-void Screen::render(const Controller& c) {
+void Screen::render(const Controller& c, unsigned holdProgress) {
   pixels.fill(rgb565(background));
   visible.clear();
   clipped = false;
@@ -99,13 +99,14 @@ void Screen::render(const Controller& c) {
   small("BRIGHT", 34, 145, muted);
   small("KELVIN", 101, 145, muted);
   text(std::to_string(c.selected + 1) + "/" + std::to_string(c.config.modes.size()), width / 2, 174, width - 16, 2, 1, muted);
-  auto message = c.status == "Ready" || c.status == "Selected" ? "B TO APPLY" : c.status == "OK" ? "APPLIED" : c.status;
+  auto message = c.status == "Ready" || c.status == "Selected" ? "HOLD A TO SET" : c.status == "OK" ? "APPLIED" : c.status;
   uint32_t statusColor = muted;
   if (c.status == "OK") statusColor = green;
   else if (c.status == "Sending..." || c.status == "Connecting") statusColor = 0xFFE49C;
   else if (c.status != "Ready" && c.status != "Selected") statusColor = 0xFF8A88;
   small(message, width / 2, 194, statusColor);
   small(c.appliedText(), width / 2, 208, c.hasApplied && c.applied == mode.name ? green : muted);
-  small("A NEXT  B SET", width / 2, 224, muted);
+  if (holdProgress) rect(8, 220, (width - 16) * std::min(100u, holdProgress) / 100, 2, accent);
+  small("A NEXT  B SLEEP", width / 2, 224, muted);
 }
 }  // namespace light

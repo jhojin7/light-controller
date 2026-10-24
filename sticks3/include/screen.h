@@ -12,7 +12,7 @@ class Screen {
   std::array<uint16_t, width * height> pixels{};
   std::vector<std::string> visible;
   bool clipped = false;
-  void render(const Controller& controller);
+  void render(const Controller& controller, unsigned holdProgress = 0);
  private:
   void pixel(int x, int y, uint32_t color);
   void rect(int x, int y, int w, int h, uint32_t color);
