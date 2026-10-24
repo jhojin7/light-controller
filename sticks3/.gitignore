@@ -1,0 +1,5 @@
+.pio/
+.venv/
+.local/
+data/
+__pycache__/
