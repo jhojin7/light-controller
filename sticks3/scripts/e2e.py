@@ -99,6 +99,7 @@ def live(board, ha):
         if on is not None and any(m.get("action") == "off" for m in ha.config["modes"]):
             order.append(on)
         for index in order:
+            board.call("maintenance", seconds=120)
             current = board.call("status")["selected"]
             for _ in range((index - current) % len(ha.config["modes"])):
                 board.call("next")
@@ -141,13 +142,14 @@ def main():
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--skip-ha", action="store_true")
     parser.add_argument("--sleep", action="store_true", help="Also verify timer-woken deep sleep and retained selection")
+    parser.add_argument("--keep-awake", action="store_true", help="Leave a bounded test lease after sleep verification")
     args = parser.parse_args()
     if args.live and args.skip_ha:
         parser.error("--live cannot be combined with --skip-ha")
-    binary = build()
     config = json.loads((ROOT / "data/config.json").read_text())
     with Board(args.port) as board:
         board.call("maintenance", seconds=120)
+        binary = build()
         status = board.call("status")
         assert status["board"] == "StickS3", "Unexpected board"
         assert (status["width"], status["height"]) == (135, 240), "Wrong display orientation"
@@ -172,6 +174,7 @@ def main():
         render_frames = [{"cycle": True} for _ in range(status["selected"])] + [{"cycle": True} for _ in config["modes"]]
         render_frames[-1]["render_status"] = status["status"]
         spec = {"config": config, "frames": render_frames, "online": status["online"],
+                "hold_progress": status["hold_progress"],
                 "dump": str(ROOT / ".local/host-frame.raw"),
                 "battery": status["battery"], "charging": status["charging"],
                 "has_applied": status["has_applied"], "applied_name": status["applied_name"], "applied_off": status["applied_off"]}
@@ -180,16 +183,20 @@ def main():
         assert pixels == expected, "Board framebuffer differs from host renderer"
         print("PASS device framebuffer matches host renderer", flush=True)
         if not args.skip_ha:
-            result = board.call("ha_check")
-            assert result["online"] and result["ha_http"] == 200 and result["entity_http"] == 200, "Board cannot authenticate with HA or read the light"
-            print("PASS device Wi-Fi, HA authentication and light lookup", flush=True)
+            # Repeated jobs catch socket lifetime/cleanup failures that a single
+            # successful connection misses. Both endpoints must succeed each time.
+            for _ in range(3):
+                result = board.call("ha_check")
+                assert result["online"] and result["ha_http"] == 200 and result["entity_http"] == 200, (
+                    "Board HA check failed: " + str({k: result[k] for k in ("online", "ha_http", "entity_http")}))
+            print("PASS repeated device Wi-Fi, HA authentication and light lookup", flush=True)
         if args.live:
             live(board, HA())
         if args.sleep:
-            sleep_cycle(board, args.port)
+            sleep_cycle(board, args.port, args.keep_awake)
 
 
-def sleep_cycle(board, port):
+def sleep_cycle(board, port, keep_awake=False):
     # A non-default selection makes this test fail if RTC retention is lost.
     board.call("next")
     before = board.call("status")
@@ -206,7 +213,7 @@ def sleep_cycle(board, port):
                 assert after["applied_name"] == before["applied_name"], "Command history lost across deep sleep"
                 assert after["motion_ready"], "Motion setup failed after deep sleep"
                 assert after["backlight_pwm_hz"] == 20000, "Backlight PWM changed after wake"
-                resumed.call("maintenance", seconds=0)
+                resumed.call("maintenance", seconds=120 if keep_awake else 0)
                 print("PASS actual deep sleep, timer wake, retained selection/history and motion reinitialization", flush=True)
                 return
         except (OSError, RuntimeError, TimeoutError):

@@ -44,7 +44,7 @@ int main() {
       if (inputAccepted) c.next();
       if (frame["confirm"] | false) { c.apply(send); inputAccepted = true; }
       if (frame["render_status"].is<const char*>()) c.status = frame["render_status"].as<std::string>();
-      screen.render(c);
+      screen.render(c, spec["hold_progress"] | 0u);
       auto output = frames.add<JsonObject>();
       auto visible = output["visible"].to<JsonArray>();
       for (auto& text : screen.visible) visible.add(text);

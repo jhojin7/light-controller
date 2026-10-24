@@ -21,6 +21,9 @@ bool Network::begin(const std::string& ssid, const std::string& password,
   }
   enabled_ = true;
   WiFi.mode(WIFI_STA);
+  // Awake sessions are brief. Keep the radio responsive during browsing/apply;
+  // the entire Wi-Fi driver is stopped for the long idle periods in deep sleep.
+  WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.begin(ssid.c_str(), password.c_str());
   lastRetry_ = millis();
@@ -67,15 +70,18 @@ void Network::stop() {
 }
 
 int Network::request(const std::string& path, const std::string& body, bool post) {
-  HTTPClient http;
+  // HTTPClient borrows the socket and may access it in its destructor even
+  // after end(). Declare it last so it is destroyed before either socket.
   WiFiClient plain;
   WiFiClientSecure secure;
+  HTTPClient http;
   WiFiClient* client = &plain;
   if (url_.compare(0, 8, "https://") == 0) {
     if (ca_.empty() || std::time(nullptr) < 1700000000) return -1;
     secure.setCACert(ca_.c_str()); secure.setHandshakeTimeout(5); client = &secure;
   }
   http.setConnectTimeout(5000); http.setTimeout(10000);
+  http.setReuse(false);  // Each job owns a fresh socket; release it after use.
   if (!http.begin(*client, String((url_ + path).c_str()))) return -1;
   http.addHeader("Authorization", String("Bearer ") + token_.c_str());
   http.addHeader("Content-Type", "application/json");

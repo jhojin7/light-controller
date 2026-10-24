@@ -8,7 +8,8 @@ there is no double-click shortcut. Holding A never also advances the selection.
 
 Picking it up also wakes the screen. Wi-Fi reconnects automatically in the
 background as soon as the device wakes, remains enabled while awake, and turns
-off for sleep. The screen and keys keep working while connection/requests wait.
+off for sleep. Radio power saving is disabled during these brief awake sessions
+to keep requests responsive. The screen and keys keep working while connection/requests wait.
 If you hold A before connection finishes, that preset applies automatically
 once connected; there is no second hold to confirm.
 

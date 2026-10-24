@@ -66,6 +66,10 @@ allows 60 seconds for the physical gesture and checks GPIO12 for B or GPIO13 for
 motion; a fallback timer wake fails the physical-source assertion. A wake key
 held through boot must not immediately put the device back to sleep. Repeat
 pickup, put-down, B sleep/wake and A hold/release on both USB and battery.
+Use `--keep-awake` with `--sleep` to leave a bounded 120-second debugging lease
+after recovery. Long live runs renew the lease before each preset. The runner
+captures a lease before compiling the host renderer so compilation cannot use
+up the 3-second wake window. Frame comparisons include the captured A-hold bar.
 
 The main loop never runs HTTP synchronously. During a slow connection or apply,
 verify that the hold indicator/status remains readable and B can request sleep.
@@ -116,7 +120,7 @@ Do not replace goldens to hide an unexplained rendering difference.
 | Feather, 2026-10-16 | 29 board/rendering/regression checks, 3 host transport tests and package checks passed; live DAY/EVENING passed |
 | StickS3, 2026-10-24 | 27 C++ scenarios, 4 provisioning tests, build/upload, framebuffer and HA checks passed during bring-up; user confirmed physical controls and display |
 | StickS3 backlight, 2026-10-24 | Hardware reported 20,000 Hz at brightness 128/255; user confirmed idle flicker was gone |
-| StickS3 sleep/controls, 2026-10-24 | 22 mode/render scenarios, 50 interaction assertions, 4 provisioning checks, application/diagnostic builds and Feather checks passed. Board identity/configuration, framebuffer equality, read-only HA and timer deep-sleep recovery passed. Physical motion wake recorded EXT1 GPIO13 (8192); B wake recorded EXT1 GPIO12 (4096) after wake-key/settling fixes. BMI270 power control read 0x04 (accelerometer only). |
+| StickS3 sleep/controls, 2026-10-24 | 22 mode/render scenarios, 50 interaction assertions, 4 provisioning checks, application/diagnostic builds and Feather checks passed. Final firmware upload, board identity/configuration, framebuffer equality, three consecutive read-only HA jobs and timer deep-sleep recovery with a non-default selection and command history passed. Physical motion wake recorded EXT1 GPIO13 (8192); B wake recorded EXT1 GPIO12 (4096) after wake-key/settling fixes. BMI270 power control read 0x04 (accelerometer only). Live DAY, EVENING, OFF and back ON passed; SLEEP retained the known 2200→2500 K mismatch. Original light state was restored and the temporary scene deleted. |
 
 The physical B test initially reported no wake. Sleep settling now leaves B
 armed, and RTC wake pins are released before sampling keys on boot. A short
@@ -125,12 +129,16 @@ telemetry recorded the actual GPIO12 wake. The physical-source helper now uses
 a 60-second fallback to allow time for the human step. Pickup sensitivity,
 extended wake-cycle reliability and battery-side current still need broader
 measurement. A flash backup was saved privately before the first feature upload.
-The final live-light rerun was not completed because the USB board became
-unavailable; the new firmware's read-only HA check passed earlier. The existing
-SLEEP temperature mismatch below remains a previously recorded result, not a
-new live-test result for this change.
+During final validation, intermittent HA failures exposed incorrect socket
+lifetime ordering: HTTPClient can still access its borrowed client in its
+destructor after end(). Sockets now outlive HTTPClient and each job disables
+connection reuse. The radio also remains fully awake during the brief awake
+session; it is stopped for deep sleep. Three consecutive API/entity jobs and
+live preset commands passed after these changes. Standby current and endurance
+remain unmeasured.
 
 The tested light reports 2500 K after the configured SLEEP request of 2200 K,
 including through a direct HA call. Strict live checks failed that temperature
-comparison; the original light state was restored. These records do not represent
-an all-green run of every live preset. Presets and tolerances remain unchanged.
+comparison in the new firmware run as well; the original light state was restored.
+These records do not represent an all-green run of every live preset. Presets
+and tolerances remain unchanged.
