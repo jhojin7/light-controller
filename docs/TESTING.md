@@ -142,3 +142,12 @@ including through a direct HA call. Strict live checks failed that temperature
 comparison in the new firmware run as well; the original light state was restored.
 These records do not represent an all-green run of every live preset. Presets
 and tolerances remain unchanged.
+
+A subsequent SmartThings device-diagnostics check confirmed this light's actual
+color-temperature range is **2500–6500 K**. The SmartThings HA integration
+advertises a generic 2000–9000 K range, so the earlier range check did not catch
+the unsupported 2200 K preset. Direct HA requests reproduced the same clamp.
+Use 2500 K for this device's SLEEP preset; the private local deployment source
+was corrected accordingly. No further device-settings upload was performed
+after the user requested testing stop. The user confirmed the current controller
+behavior works as expected.
