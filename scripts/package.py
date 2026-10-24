@@ -14,6 +14,7 @@ FILES = (
     "README.md",
     "LICENSE",
     "docs/SETUP_GUIDE.md",
+    "docs/CONFIGURATION.md",
     "docs/FEATURE_MAP.md",
     "docs/TESTING.md",
     "assets/ui-preview.png",

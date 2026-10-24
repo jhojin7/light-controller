@@ -1,99 +1,58 @@
 # Light Controller
 
-A physical Home Assistant light controller for the **Adafruit ESP32-S3 Reverse
-TFT Feather (5691)**, running CircuitPython.
+A physical Home Assistant light controller with DAY, EVENING, SLEEP and OFF
+presets. Select a mode on the screen, then press the apply button to send it.
 
-The portrait UI displays one mode at a time: a large dotted bitmap title,
-sun/sunset/moon/power icon, brightness, Kelvin, and a `1/n` position indicator.
-**D1** cycles through all configured modes; **D2** applies the displayed mode.
-`ON:` shows the last successfully applied on-mode; `LIGHT OFF` confirms a
-successful OFF request. The Wi-Fi icon turns green
-when connected. The font and icons are built into the firmware.
+| Board | Firmware | Next / apply | Setup |
+| --- | --- | --- | --- |
+| Adafruit ESP32-S3 Reverse TFT Feather (5691) | CircuitPython, repository root | D1 / D2 | [Feather guide](docs/SETUP_GUIDE.md) |
+| M5Stack StickS3 (K150) | Arduino C++, `sticks3/` | A / B | [StickS3 guide](https://github.com/jhojin7/light-controller/tree/main/sticks3) |
 
-![Controller UI](assets/ui-preview.png)
+Both versions have a 135 × 240 portrait display with dotted headings, mode icons,
+brightness, color temperature and a page counter. StickS3 also shows battery
+percentage, charging state and a low-battery indicator.
 
-## Project layout
+![StickS3 mode cards](https://raw.githubusercontent.com/jhojin7/light-controller/main/sticks3/assets/ui-preview.png)
 
-```text
-code.py                CircuitPython application
-boot.py                Suppress the display's boot/REPL console
-config.json.example    Distributable light entity and four-mode template
-config.json            Local deployment settings
-settings.toml.example  Wi-Fi and Home Assistant settings template
-docs/SETUP_GUIDE.md     Board setup and library installation
-docs/FEATURE_MAP.md     Features, behavior, limitations and test coverage
-docs/TESTING.md         Repeatable hardware/HA test commands and recovery
-assets/ui-preview.png  Preview of the three default modes
-scripts/check.py       Host-side syntax and configuration checks
-scripts/package.py     Create a board-ready application ZIP
-scripts/e2e.py         On-board E2E runner and optional real light control
-tests/                 Input traces, board adapters, transport tests and goldens
+```mermaid
+flowchart LR
+    Next[Next button] --> Selection[Selected mode]
+    Selection --> Apply[Apply button]
+    Apply --> HA[Home Assistant]
+    HA --> Light[Configured light]
+    HA --> Result[Applied or error status]
 ```
 
-This is firmware, so `code.py` and `boot.py` remain at the project root to
-match the CIRCUITPY drive layout. The application runs on the Feather;
-the development scripts run on a computer with Python 3.9 or newer.
+Selecting a mode does not change the light. `ON:` and `LIGHT OFF` show the last
+successful controller command. The Wi-Fi icon turns green when connected;
+it does not indicate whether Home Assistant authentication succeeded.
 
-## Board setup
+## Configuration
 
-1. Install CircuitPython and the matching Adafruit libraries using the
-   [setup guide](docs/SETUP_GUIDE.md).
-2. Copy `code.py` and `boot.py` to the CIRCUITPY root. Copy
-   `config.json.example` there as `config.json` (or use your local config).
-3. Copy `settings.toml.example` to the board as `settings.toml`, then enter
-   your Wi-Fi credentials, Home Assistant URL, and long-lived access token.
-4. Set your light's entity ID and desired modes in the board's `config.json`.
-5. Reset the board. D1 cycles; D2 applies.
+Both versions use the same mode JSON and Wi-Fi/Home Assistant settings.
+Start with `config.json.example` and `settings.toml.example`, then follow the
+[configuration reference](docs/CONFIGURATION.md).
 
-The board needs `adafruit_display_text`, `adafruit_requests`, and
-`adafruit_connection_manager` in `CIRCUITPY/lib`. These libraries and
-CircuitPython itself are installed separately and are not included in the ZIP.
+## Development
 
-## Development and packaging
+Run commands from the directory for the board you are using:
 
-```sh
-make check
-make package
-make test
-make e2e
-```
+| Task | Feather: repository root | StickS3: `sticks3/` |
+| --- | --- | --- |
+| Install host tools | Python 3.9+; no host packages | `make setup` with Python 3.11+ |
+| Local checks | `make check` and `make test` | `make check` |
+| Build or package | `make package` | `make build` |
+| Board and read-only HA checks | `make e2e` | `make e2e` |
+| Apply real presets and restore the light | `make e2e-live` | `make e2e-live` |
 
-Or run the scripts directly:
+The Feather ZIP is written to `dist/light-controller.zip`. It contains the
+application, documentation and configuration templates. CircuitPython and its
+libraries are installed separately.
 
-```sh
-python3 scripts/check.py
-python3 scripts/package.py
-```
-
-Checks parse the Python files and validate the distributable modes and settings
-template without importing CircuitPython hardware modules. `make test` verifies
-serial recovery against a pseudo-terminal. `make e2e` executes the full firmware
-on the connected board, compares rendered screens, injects logical button inputs
-and checks the real HA API without changing the light. `make e2e-live` additionally
-applies all four presets and restores the original light state. See the
-[feature map](docs/FEATURE_MAP.md) and [testing guide](docs/TESTING.md).
-
-Packaging produces `dist/light-controller.zip`, containing the firmware,
-configuration and settings templates, license, README, and setup guide.
-It always uses an explicit file list and the `config.json.example` template,
-excluding local configuration and credentials.
-No Python packages are needed for either development command.
-
-## Modes and orientation
-
-Each mode has a `name`, `brightness` (0–255), and positive `kelvin` value.
-The list can contain any nonzero number of modes. An optional `icon` value
-(`sun`, `sunset`, `moon`, or `off`) overrides automatic icon selection for on
-presets. An OFF entry needs only `{"name": "OFF", "action": "off"}`; it sends
-`light.turn_off` with the entity ID and no color/brightness fields. D1 cycles
-back from OFF to DAY; D2 applies either action.
-
-Portrait rotation is `90` degrees in `code.py`; use `270` if mounting the
-board in the opposite orientation. Long names are shortened on screen.
-
-The default `config.json.example` is a template. `settings.toml` is ignored by Git;
-keep your credentials in that local file or directly on the board.
+See [behavior and board differences](docs/FEATURE_MAP.md) and
+[testing and recovery](docs/TESTING.md). The two implementations have separate
+build and deployment commands.
 
 ## License
 
-[MIT](LICENSE), matching the existing firmware license headers.
+[MIT](LICENSE).
