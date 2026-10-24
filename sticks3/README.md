@@ -15,6 +15,10 @@ The top right shows battery percentage and a battery icon. A plus in the icon
 indicates charging; a discharging battery at 20% or below turns red. Battery
 readings refresh every 15 seconds, and Wi-Fi status sits immediately to their left.
 
+The application uses a 20 kHz backlight PWM frequency at brightness 128/255,
+overriding the pinned M5GFX driver's 256 Hz default to address rapid brightness
+flickering. `status` reports the hardware timer frequency as `backlight_pwm_hz`.
+
 ![Four default mode cards](assets/ui-preview.png)
 
 ## Build and install
