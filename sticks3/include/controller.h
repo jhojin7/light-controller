@@ -41,12 +41,9 @@ class Controller {
   std::string status = "Connecting";
   const Mode& mode() const { return config.modes[selected]; }
   using Send = std::function<int(const Mode&, const std::string&)>;
-  bool buttons(uint32_t now, bool cycle, bool confirm, const Send& send);
   void next();
   void apply(const Send& send);
+  void recordResult(const Mode& mode, int code);
   std::string appliedText() const;
- private:
-  uint32_t lastCycle_ = 0;
-  uint32_t lastConfirm_ = 0;
 };
 }  // namespace light

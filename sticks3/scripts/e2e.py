@@ -140,18 +140,21 @@ def main():
     parser.add_argument("--port")
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--skip-ha", action="store_true")
+    parser.add_argument("--sleep", action="store_true", help="Also verify timer-woken deep sleep and retained selection")
     args = parser.parse_args()
     if args.live and args.skip_ha:
         parser.error("--live cannot be combined with --skip-ha")
     binary = build()
     config = json.loads((ROOT / "data/config.json").read_text())
     with Board(args.port) as board:
+        board.call("maintenance", seconds=120)
         status = board.call("status")
         assert status["board"] == "StickS3", "Unexpected board"
         assert (status["width"], status["height"]) == (135, 240), "Wrong display orientation"
         assert status["psram"] > 8000000, "PSRAM initialization failed"
         assert status["filesystem"] and status["settings"] and status["config_valid"], "Configuration did not load"
         assert status["mode_count"] == len(config["modes"]), "Wrong mode count"
+        assert status["motion_ready"], "Motion sensor/IRQ setup failed"
         print("PASS board identity, portrait display, PSRAM and configuration", flush=True)
         start = status["selected"]
         for _ in config["modes"]:
@@ -182,6 +185,33 @@ def main():
             print("PASS device Wi-Fi, HA authentication and light lookup", flush=True)
         if args.live:
             live(board, HA())
+        if args.sleep:
+            sleep_cycle(board, args.port)
+
+
+def sleep_cycle(board, port):
+    # A non-default selection makes this test fail if RTC retention is lost.
+    board.call("next")
+    before = board.call("status")
+    board.call("sleep_test", seconds=2)
+    board.close()
+    time.sleep(3)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        try:
+            with Board(port) as resumed:
+                after = resumed.call("status", timeout=1)
+                assert after["wake_cause"] == 4, "Expected ESP timer wake after deep sleep"
+                assert after["selected"] == before["selected"], "Selection lost across deep sleep"
+                assert after["applied_name"] == before["applied_name"], "Command history lost across deep sleep"
+                assert after["motion_ready"], "Motion setup failed after deep sleep"
+                assert after["backlight_pwm_hz"] == 20000, "Backlight PWM changed after wake"
+                resumed.call("maintenance", seconds=0)
+                print("PASS actual deep sleep, timer wake, retained selection/history and motion reinitialization", flush=True)
+                return
+        except (OSError, RuntimeError, TimeoutError):
+            time.sleep(0.2)
+    raise AssertionError("Board did not return after timed deep sleep")
 
 
 if __name__ == "__main__":

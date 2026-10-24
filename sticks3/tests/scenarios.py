@@ -8,7 +8,7 @@ SLEEP = {'entity_id': 'light.e2e_fixture', 'brightness': 25, 'color_temp_kelvin'
 
 def scenarios(fixture, screenshots=False):
     navigation = [
-        {'visible': ['DAY', '100%', '5000K', '1/3', 'B TO APPLY', 'ON: --'], 'absent': ['EVENING', 'SLEEP']},
+        {'visible': ['DAY', '100%', '5000K', '1/3', 'HOLD A TO SET', 'ON: --'], 'absent': ['EVENING', 'SLEEP']},
         {'cycle': True, 'visible': ['EVENING', '50%', '2700K', '2/3'], 'absent': ['DAY', 'SLEEP']},
         {'cycle': True, 'visible': ['SLEEP', '9%', '2200K', '3/3'], 'absent': ['DAY', 'EVENING']},
         {'cycle': True, 'visible': ['DAY', '1/3']},
@@ -17,25 +17,11 @@ def scenarios(fixture, screenshots=False):
         {'name': 'startup-and-navigation', 'frames': navigation, 'screenshots': screenshots},
         {'name': 'apply-all-presets', 'frames': [
             {'confirm': True, 'visible': ['APPLIED', 'ON: DAY']},
-            {'cycle': True, 'visible': ['EVENING', 'ON: DAY', 'B TO APPLY']},
+            {'cycle': True, 'visible': ['EVENING', 'ON: DAY', 'HOLD A TO SET']},
             {'confirm': True, 'visible': ['APPLIED', 'ON: EVENING']},
             {'cycle': True, 'visible': ['SLEEP', 'ON: EVENING']},
             {'confirm': True, 'visible': ['APPLIED', 'ON: SLEEP']},
         ], 'posts': [DAY, EVENING, SLEEP]},
-        {'name': 'button-debounce-and-hold-repeat', 'frames': [
-            {'time': 0.29, 'cycle': True, 'visible': ['DAY', '1/3']},
-            {'time': 0.30, 'cycle': True, 'visible': ['DAY', '1/3']},
-            {'time': 0.31, 'cycle': True, 'visible': ['EVENING', '2/3']},
-            {'time': 0.40, 'cycle': True, 'visible': ['EVENING', '2/3']},
-            {'time': 0.62, 'cycle': True, 'visible': ['SLEEP', '3/3']},
-        ]},
-        {'name': 'confirm-debounce', 'frames': [
-            {'time': 0.31, 'confirm': True, 'visible': ['APPLIED']},
-            {'time': 0.40, 'confirm': True, 'visible': ['APPLIED']},
-        ], 'posts': [DAY]},
-        {'name': 'simultaneous-buttons-cycle-before-apply', 'frames': [
-            {'cycle': True, 'confirm': True, 'visible': ['EVENING', '2/3', 'ON: EVENING', 'APPLIED']},
-        ], 'posts': [EVENING]},
         {'name': 'success-201', 'outcomes': [201], 'frames': [
             {'confirm': True, 'visible': ['APPLIED', 'ON: DAY']},
         ], 'posts': [DAY]},

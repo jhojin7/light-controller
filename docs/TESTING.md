@@ -12,8 +12,12 @@ Wi-Fi network and Home Assistant light. Close other serial monitors first.
 
 Feather checks validate Python/configuration, exercise serial recovery against a
 pseudo-terminal and package the application. StickS3 checks compile the actual
-C++ controller/renderer and test provisioning. Scenarios cover navigation,
-button timing, request payloads, errors, OFF/back ON, configuration and layout.
+C++ controller/renderer and test provisioning. The mode/render harness covers
+payloads, errors, OFF/back ON, configuration and layout. A separate fake-clock
+interaction suite drives raw A/B levels through debounce, tap/hold, simultaneous
+keys, wake release, deadlines, pending connection/apply, stale completion and
+RTC retention recovery. The old StickS3 hold-repeat tests are superseded by
+the new gesture contract; Feather timing is unchanged.
 
 ## Hardware checks
 
@@ -42,12 +46,32 @@ python3 scripts/e2e.py --case off-and-back-on --skip-ha
 # StickS3, from sticks3/
 make e2e PORT=/dev/cu.usbmodemYOUR_BOARD
 .venv/bin/python scripts/e2e.py --skip-ha --port /dev/cu.usbmodemYOUR_BOARD
+.venv/bin/python scripts/e2e.py --sleep --port /dev/cu.usbmodemYOUR_BOARD
+# With a person at the device, verify the exact physical wake pin:
+.venv/bin/python scripts/wake_check.py --source b --port /dev/cu.usbmodemYOUR_BOARD
+.venv/bin/python scripts/wake_check.py --source motion --port /dev/cu.usbmodemYOUR_BOARD
 ```
 
 `--skip-ha` skips HA connectivity checks explicitly. Live checks allow 20 seconds
 for state convergence, brightness tolerance 3/255 and temperature tolerance 100 K.
 Physical buttons, emitted display/light output and battery endurance need manual
 checks; framebuffer verification does not measure those.
+
+Wake the StickS3 with motion/B before starting serial checks. The runner acquires
+a bounded 120-second maintenance lease so the normal 3-second idle timeout cannot
+interrupt checks. Normal status polling does not keep it awake. `--sleep` uses
+a 2-second timer fallback, verifies the actual ESP deep-sleep wake cause and a
+non-default retained selection, and releases its lease afterward. `wake_check.py`
+allows 60 seconds for the physical gesture and checks GPIO12 for B or GPIO13 for
+motion; a fallback timer wake fails the physical-source assertion. A wake key
+held through boot must not immediately put the device back to sleep. Repeat
+pickup, put-down, B sleep/wake and A hold/release on both USB and battery.
+
+The main loop never runs HTTP synchronously. During a slow connection or apply,
+verify that the hold indicator/status remains readable and B can request sleep.
+An in-flight apply completes or times out before sleep; an unused wake cancels
+background association after 3 seconds. Battery-side sleep current needs external
+measurement equipment; USB charging percentage is not a sleep-current measurement.
 
 ## Live-test recovery
 
@@ -92,6 +116,19 @@ Do not replace goldens to hide an unexplained rendering difference.
 | Feather, 2026-10-16 | 29 board/rendering/regression checks, 3 host transport tests and package checks passed; live DAY/EVENING passed |
 | StickS3, 2026-10-24 | 27 C++ scenarios, 4 provisioning tests, build/upload, framebuffer and HA checks passed during bring-up; user confirmed physical controls and display |
 | StickS3 backlight, 2026-10-24 | Hardware reported 20,000 Hz at brightness 128/255; user confirmed idle flicker was gone |
+| StickS3 sleep/controls, 2026-10-24 | 22 mode/render scenarios, 50 interaction assertions, 4 provisioning checks, application/diagnostic builds and Feather checks passed. Board identity/configuration, framebuffer equality, read-only HA and timer deep-sleep recovery passed. Physical motion wake recorded EXT1 GPIO13 (8192); B wake recorded EXT1 GPIO12 (4096) after wake-key/settling fixes. BMI270 power control read 0x04 (accelerometer only). |
+
+The physical B test initially reported no wake. Sleep settling now leaves B
+armed, and RTC wake pins are released before sampling keys on boot. A short
+10-second human-test fallback expired before a later B press; subsequent device
+telemetry recorded the actual GPIO12 wake. The physical-source helper now uses
+a 60-second fallback to allow time for the human step. Pickup sensitivity,
+extended wake-cycle reliability and battery-side current still need broader
+measurement. A flash backup was saved privately before the first feature upload.
+The final live-light rerun was not completed because the USB board became
+unavailable; the new firmware's read-only HA check passed earlier. The existing
+SLEEP temperature mismatch below remains a previously recorded result, not a
+new live-test result for this change.
 
 The tested light reports 2500 K after the configured SLEEP request of 2200 K,
 including through a direct HA call. Strict live checks failed that temperature

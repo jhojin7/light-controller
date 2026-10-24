@@ -3,27 +3,35 @@
 #include <M5Unified.h>
 #include <lgfx/v1/platforms/esp32/Light_PWM.hpp>
 #include <ArduinoJson.h>
-#include <HTTPClient.h>
 #include <LittleFS.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <ctime>
+#include <esp_sleep.h>
+#include <driver/rtc_io.h>
+#include <algorithm>
 #include <memory>
 #include "controller.h"
+#include "interaction.h"
+#include "network.h"
 #include "screen.h"
+#include "sleep.h"
 
 namespace {
 std::unique_ptr<light::Controller> controller;
+std::unique_ptr<light::Interaction> interaction;
 light::Screen screen;
+light::Network network;
+light::SleepHardware sleepHardware;
 std::string ssid, password, haUrl, token, ca;
-bool filesystemOk = false;
-bool settingsOk = false;
-bool tlsReady = false;
+bool filesystemOk = false, settingsOk = false;
 uint32_t lastBatteryAt = 0;
-uint32_t lastWifiRetryAt = 0;
-volatile uint32_t wifiDisconnectReason = 0;
 int backlightChannel = -1;
+RTC_DATA_ATTR light::RetainedSelection retained;
+RTC_DATA_ATTR uint32_t testResumeSeconds = 0;
+uint32_t maintenanceAt = 0, maintenanceMs = 0, testWakeSeconds = 0;
+bool syntheticA = false, syntheticB = false, applyReply = false, checkReply = false, scanReply = false;
+uint32_t syntheticAt = 0;
 
+bool maintenance() { return maintenanceMs && uint32_t(millis() - maintenanceAt) < maintenanceMs; }
 void configureBacklight() {
   constexpr uint8_t brightness = 128;
   if (M5.getBoard() == m5::board_t::board_M5StickS3 && M5.Display.light()) {
@@ -67,39 +75,10 @@ std::string readFile(const char* path) {
 }
 
 void draw() {
-  screen.render(*controller);
+  screen.render(*controller, interaction->holdProgress());
   M5.Display.startWrite();
   M5.Display.pushImage(0, 0, light::Screen::width, light::Screen::height, screen.pixels.data());
   M5.Display.endWrite();
-}
-
-// Never print URLs, credentials, request bodies, or arbitrary HTTP responses.
-int request(const String& path, const String& body, bool post) {
-  HTTPClient http;
-  WiFiClient plain;
-  WiFiClientSecure secure;
-  WiFiClient* client = &plain;
-  if (haUrl.compare(0, 8, "https://") == 0) {
-    if (!tlsReady) return -1;
-    secure.setCACert(ca.c_str());
-    secure.setHandshakeTimeout(10);
-    client = &secure;
-  }
-  http.setConnectTimeout(10000);
-  http.setTimeout(10000);
-  // Redirects are deliberately disabled: do not forward a Bearer token elsewhere.
-  if (!http.begin(*client, String(haUrl.c_str()) + path)) return -1;
-  http.addHeader("Authorization", String("Bearer ") + token.c_str());
-  http.addHeader("Content-Type", "application/json");
-  int code = post ? http.POST(body) : http.GET();
-  http.end();
-  return code;
-}
-
-int sendMode(const light::Mode& mode, const std::string& entity) {
-  draw();  // Show SENDING before a synchronous network request.
-  return request(String("/api/services/light/") + light::service(mode).c_str(),
-                 light::requestBody(entity, mode).c_str(), true);
 }
 
 void readSettings() {
@@ -117,33 +96,6 @@ void readSettings() {
   ca = readFile("/ca.pem");
 }
 
-void connectNetwork() {
-  if (!filesystemOk) { controller->status = "Upload settings"; return; }
-  if (!settingsOk) { controller->status = "No settings"; return; }
-  WiFi.mode(WIFI_STA);
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED)
-      wifiDisconnectReason = info.wifi_sta_disconnected.reason;
-  });
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(ssid.c_str(), password.c_str());
-  uint32_t started = millis();
-  while (WiFi.status() != WL_CONNECTED && uint32_t(millis() - started) < 15000) {
-    M5.update();
-    delay(25);
-  }
-  controller->online = WiFi.status() == WL_CONNECTED;
-  controller->status = controller->online ? "Ready" : "WiFi fail";
-  if (controller->online && haUrl.compare(0, 8, "https://") == 0) {
-    if (ca.empty()) { controller->status = "TLS CA missing"; return; }
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    started = millis();
-    while (std::time(nullptr) < 1700000000 && uint32_t(millis() - started) < 10000) delay(25);
-    tlsReady = std::time(nullptr) >= 1700000000;
-    if (!tlsReady) controller->status = "TLS clock error";
-  }
-}
-
 void status(JsonDocument& doc) {
   doc["kind"] = "status";
   doc["board"] = M5.getBoard() == m5::board_t::board_M5StickS3 ? "StickS3" : "unknown";
@@ -158,7 +110,7 @@ void status(JsonDocument& doc) {
   doc["config_valid"] = controller->config.valid;
   doc["online"] = controller->online;
   doc["wifi_status"] = int(WiFi.status());
-  doc["wifi_reason"] = uint32_t(wifiDisconnectReason);
+
   doc["wifi_rssi"] = controller->online ? WiFi.RSSI() : 0;
   doc["selected"] = controller->selected;
   doc["mode_count"] = controller->config.modes.size();
@@ -173,127 +125,166 @@ void status(JsonDocument& doc) {
   doc["button_b"] = M5.BtnB.isPressed();
   doc["battery"] = controller->battery;
   doc["charging"] = controller->charging;
+  doc["view"] = light::Interaction::viewName(interaction->view());
+  doc["hold_progress"] = interaction->holdProgress();
+  doc["sleep_queued"] = interaction->sleepQueued();
+  doc["motion_ready"] = sleepHardware.motionReady();
+  doc["motion_error"] = sleepHardware.error();
+  doc["motion_power"] = M5.In_I2C.readRegister8(0x68, 0x7d, 400000);
+  doc["motion_irq"] = sleepHardware.irqActive();
+  doc["wake_cause"] = unsigned(esp_sleep_get_wakeup_cause());
+  doc["wake_pins"] = esp_sleep_get_ext1_wakeup_status();
+  doc["network_busy"] = network.busy();
+  doc["maintenance"] = maintenance();
   auto visible = doc["visible"].to<JsonArray>();
   for (auto& text : screen.visible) visible.add(text);
 }
 
+void replyStatus() {
+  JsonDocument reply; status(reply); serializeJson(reply, Serial); Serial.println();
+}
+
 void serialCommand() {
-  // Bounded JSON command protocol; there is no shell, evaluator, or settings dump.
   static std::string line;
   static bool overflow = false;
   while (Serial.available()) {
     char ch = Serial.read();
     if (ch == '\r') continue;
     if (ch != '\n') {
-      if (line.size() < 128 && !overflow) line.push_back(ch);
-      else overflow = true;
+      if (line.size() < 192 && !overflow) line.push_back(ch); else overflow = true;
       continue;
     }
     JsonDocument command, reply;
     bool valid = !overflow && !deserializeJson(command, line);
-    line.clear();
-    overflow = false;
+    line.clear(); overflow = false;
     std::string cmd = command["cmd"] | "";
     if (!valid) reply["error"] = "Invalid command";
     else if (cmd == "frame") {
-      draw();
-      status(reply);
-      // Stream RGB565 runs rather than allocate another frame-sized JSON tree.
-      // Include the exact state rendered, avoiding a race with battery/Wi-Fi changes.
+      draw(); status(reply);
       Serial.print("{\"kind\":\"frame\",\"width\":135,\"height\":240,\"state\":");
-      serializeJson(reply, Serial);
-      Serial.print(",\"runs\":[");
+      serializeJson(reply, Serial); Serial.print(",\"runs\":[");
       size_t i = 0;
       while (i < screen.pixels.size()) {
-        uint16_t color = screen.pixels[i];
-        size_t end = i + 1;
+        uint16_t color = screen.pixels[i]; size_t end = i + 1;
         while (end < screen.pixels.size() && screen.pixels[end] == color) ++end;
         if (i) Serial.print(',');
-        Serial.printf("%u,%u", unsigned(end - i), unsigned(color));
-        i = end;
+        Serial.printf("%u,%u", unsigned(end - i), unsigned(color)); i = end;
       }
-      Serial.println("]}");
-      break;
+      Serial.println("]}"); break;
+    } else if (cmd == "maintenance") {
+      // Explicit USB test lease, never enabled by normal boot or status polling.
+      maintenanceAt = millis();
+      maintenanceMs = std::min(120u, command["seconds"] | 60u) * 1000;
+      status(reply);
+    } else if (cmd == "button" && maintenance()) {
+      syntheticA = command["a"] | false; syntheticB = command["b"] | false;
+      syntheticAt = millis(); status(reply);
+    } else if (cmd == "sleep_test" && maintenance()) {
+      testWakeSeconds = std::min(60u, std::max(1u, command["seconds"] | 2u));
+      testResumeSeconds = 60;
+      interaction->sleep(); status(reply);
     } else if (cmd == "wifi_scan") {
-      bool reconnect = !controller->online;
-      if (reconnect) {
-        WiFi.setAutoReconnect(false);
-        WiFi.disconnect(false, false);
-        delay(100);
-      }
-      int count = WiFi.scanNetworks(false, true);
-      reply["kind"] = "wifi_scan";
-      reply["network_count"] = count;
-      reply["target_seen"] = false;
-      for (int i = 0; i < count; ++i) if (WiFi.SSID(i) == ssid.c_str()) {
-        reply["target_seen"] = true;
-        reply["rssi"] = WiFi.RSSI(i);
-        reply["channel"] = WiFi.channel(i);
-        break;
-      }
-      WiFi.scanDelete();
-      if (reconnect) {
-        WiFi.setAutoReconnect(true);
-        WiFi.begin(ssid.c_str(), password.c_str());
-        lastWifiRetryAt = millis();
+      if (network.busy() || scanReply) reply["error"] = "Busy";
+      else {
+        WiFi.scanNetworks(true, true);
+        scanReply = true; break;
       }
     } else if (cmd == "status" || cmd == "next" || cmd == "apply" || cmd == "ha_check") {
-      if (cmd == "next") controller->next();
-      if (cmd == "apply") controller->apply(sendMode);
-      draw();
-      status(reply);
-      if (cmd == "ha_check") {
-        int code = controller->online && settingsOk ? request("/api/", "", false) : -1;
-        reply["ha_http"] = code;
-        int entityCode = code == 200 ? request(String("/api/states/") + controller->config.entity.c_str(), "", false) : -1;
-        reply["entity_http"] = entityCode;
+      if (cmd == "next") interaction->next(millis());
+      if (cmd == "apply") {
+        if (network.busy() || interaction->busy() || applyReply) reply["error"] = "Busy";
+        else {
+          interaction->apply(millis()); draw();
+          if (interaction->busy()) { applyReply = true; break; }
+        }
       }
+      if (cmd == "ha_check") {
+        if (network.check(UINT32_MAX, controller->config.entity)) { checkReply = true; break; }
+        reply["error"] = "Network unavailable or busy";
+      }
+      if (!reply["error"].is<const char*>()) { draw(); status(reply); }
     } else reply["error"] = "Unknown command";
-    serializeJson(reply, Serial);
-    Serial.println();
-    break;
+    serializeJson(reply, Serial); Serial.println(); break;
   }
 }
 }  // namespace
 
 void setup() {
+  rtc_gpio_deinit(GPIO_NUM_12); rtc_gpio_deinit(GPIO_NUM_13);
   auto cfg = M5.config();
-  cfg.internal_imu = false;
-  cfg.internal_rtc = false;
-  cfg.internal_spk = false;
-  cfg.internal_mic = false;
+  cfg.internal_imu = false; cfg.internal_rtc = false;
+  cfg.internal_spk = false; cfg.internal_mic = false;
   M5.begin(cfg);
-  Serial.begin(115200);  // Standalone boot never waits for a monitor.
-  M5.Display.setRotation(0);
-  configureBacklight();
-  // pixels[] stores native-endian RGB565; M5GFX defaults to wire-order data.
+  Serial.begin(115200);
+  M5.Display.setRotation(0); configureBacklight();
   M5.Display.setSwapBytes(true);
-  filesystemOk = LittleFS.begin(false);  // Never silently erase private settings.
+  filesystemOk = LittleFS.begin(false);
   controller.reset(new light::Controller(light::parseConfig(readFile("/config.json"))));
-  updateBattery();
-  readSettings();
-  controller->hasToken = settingsOk;
-  draw();
-  connectNetwork();
-  if (!controller->config.valid) controller->status = "Config error";
+  interaction.reset(new light::Interaction(*controller));
+  readSettings(); controller->hasToken = settingsOk;
+  interaction->restore(retained);
+  M5.update(); interaction->wake(millis(), digitalRead(11) == LOW, digitalRead(12) == LOW);
+  updateBattery(); draw();
+  // Association begins before sensor bring-up. Neither waits for the router.
+  if (settingsOk && !network.begin(ssid, password, haUrl, token, ca)) controller->status = "Network error";
+  sleepHardware.begin();
+  if (!sleepHardware.motionReady()) controller->status = "Motion error";
+  // The wake-screen deadline starts after hardware setup, with input already live.
+  interaction->wake(millis(), digitalRead(11) == LOW, digitalRead(12) == LOW);
+  if (!sleepHardware.motionReady()) controller->status = "Motion error";
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER && testResumeSeconds) {
+    maintenanceAt = millis(); maintenanceMs = std::min(120u, testResumeSeconds) * 1000;
+  }
+  testResumeSeconds = 0;
   draw();
 }
 
 void loop() {
-  M5.update();
+  M5.update(); uint32_t now = millis();
+  network.update(now);
   bool wasOnline = controller->online;
-  controller->online = WiFi.status() == WL_CONNECTED;
-  if (settingsOk && !controller->online && uint32_t(millis() - lastWifiRetryAt) >= 30000) {
-    lastWifiRetryAt = millis();
-    WiFi.reconnect();
+  controller->online = network.online();
+  if (maintenance()) interaction->keepAwake(now);
+  if (uint32_t(now - syntheticAt) > 2000) syntheticA = syntheticB = false;
+  bool changed = interaction->update(now, digitalRead(11) == LOW || syntheticA, digitalRead(12) == LOW || syntheticB);
+  if (auto job = interaction->takeRequest()) {
+    if (!network.send(*job)) interaction->complete(job->id, -1, now);
+    changed = true;
   }
-  auto selection = controller->selected;
-  auto previousStatus = controller->status;
-  bool batteryChanged = uint32_t(millis() - lastBatteryAt) >= 15000 && updateBattery();
-  bool inputAccepted = controller->buttons(millis(), M5.BtnA.isPressed(), M5.BtnB.isPressed(), sendMode);
-  // Even reapplying the same mode must replace the intermediate SENDING frame.
-  if (inputAccepted || batteryChanged || wasOnline != controller->online || selection != controller->selected || previousStatus != controller->status) draw();
+  light::NetworkResult result;
+  while (network.poll(result)) {
+    if (result.check) {
+      if (checkReply) {
+        JsonDocument reply; status(reply);
+        reply["ha_http"] = result.code; reply["entity_http"] = result.entityCode;
+        serializeJson(reply, Serial); Serial.println(); checkReply = false;
+      }
+    } else {
+      interaction->complete(result.id, result.code, now); changed = true;
+    }
+  }
+  if (scanReply && WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
+    int count = WiFi.scanComplete();
+    JsonDocument reply;
+    reply["kind"] = "wifi_scan"; reply["network_count"] = count;
+    reply["target_seen"] = false;
+    for (int i = 0; i < count; ++i) if (WiFi.SSID(i) == ssid.c_str()) {
+      reply["target_seen"] = true; reply["rssi"] = WiFi.RSSI(i);
+      reply["channel"] = WiFi.channel(i); break;
+    }
+    WiFi.scanDelete(); serializeJson(reply, Serial); Serial.println(); scanReply = false;
+  }
+  if (applyReply && !interaction->busy()) { draw(); replyStatus(); applyReply = false; }
+  if (uint32_t(now - lastBatteryAt) >= 15000 && updateBattery()) changed = true;
+  if (changed || wasOnline != controller->online) draw();
   serialCommand();
+  if (interaction->view() == light::View::Sleep && !network.busy()) {
+    network.stop(); controller->online = false;
+    if (sleepHardware.prepare(now, !M5.BtnA.isPressed() && !M5.BtnB.isPressed() && !syntheticA && !syntheticB)) {
+      retained = interaction->retain();
+      Serial.flush(); sleepHardware.enter(testWakeSeconds);
+    }
+  }
   delay(10);
 }
 #endif
