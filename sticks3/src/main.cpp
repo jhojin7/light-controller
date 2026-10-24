@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #ifndef STICKS3_DIAGNOSTIC
 #include <M5Unified.h>
+#include <lgfx/v1/platforms/esp32/Light_PWM.hpp>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <LittleFS.h>
@@ -21,6 +22,27 @@ bool tlsReady = false;
 uint32_t lastBatteryAt = 0;
 uint32_t lastWifiRetryAt = 0;
 volatile uint32_t wifiDisconnectReason = 0;
+int backlightChannel = -1;
+
+void configureBacklight() {
+  constexpr uint8_t brightness = 128;
+  if (M5.getBoard() == m5::board_t::board_M5StickS3 && M5.Display.light()) {
+    // The pinned M5GFX StickS3 driver uses Light_PWM at 256 Hz. Raise its
+    // frequency, preserving its channel, resolution, polarity and brightness curve.
+    auto* backlight = static_cast<lgfx::Light_PWM*>(M5.Display.light());
+    const auto original = backlight->config();
+    backlightChannel = original.pwm_channel;
+    auto config = original;
+    config.freq = 20000;
+    backlight->config(config);
+    if (!backlight->init(brightness)) {
+      // Keep the display usable if the timer cannot be reconfigured.
+      backlight->config(original);
+      backlight->init(brightness);
+    }
+  }
+  M5.Display.setBrightness(brightness);
+}
 
 bool updateBattery() {
   int level = M5.Power.getBatteryLevel();
@@ -127,6 +149,9 @@ void status(JsonDocument& doc) {
   doc["board"] = M5.getBoard() == m5::board_t::board_M5StickS3 ? "StickS3" : "unknown";
   doc["width"] = M5.Display.width();
   doc["height"] = M5.Display.height();
+  // Read after initialization, once the hardware duty update has taken effect.
+  doc["backlight_pwm_hz"] = backlightChannel >= 0 ? ledcReadFreq(backlightChannel) : 0;
+  doc["backlight_brightness"] = M5.Display.getBrightness();
   doc["psram"] = ESP.getPsramSize();
   doc["filesystem"] = filesystemOk;
   doc["settings"] = settingsOk;
@@ -240,7 +265,7 @@ void setup() {
   M5.begin(cfg);
   Serial.begin(115200);  // Standalone boot never waits for a monitor.
   M5.Display.setRotation(0);
-  M5.Display.setBrightness(128);
+  configureBacklight();
   // pixels[] stores native-endian RGB565; M5GFX defaults to wire-order data.
   M5.Display.setSwapBytes(true);
   filesystemOk = LittleFS.begin(false);  // Never silently erase private settings.
