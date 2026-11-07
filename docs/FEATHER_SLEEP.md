@@ -8,7 +8,10 @@ priority over navigation/apply while held. After 15 seconds without button
 activity, the controller also sleeps. A running HA request finishes or times
 out before sleeping; completing a request starts a fresh inactivity window.
 
-D1 or D2 wakes the controller. The waking press is consumed: release all
+D1 or D2 wakes the controller. Both active-high alarm inputs retain an internal
+pull-down while asleep (`PinAlarm(value=True, pull=True)`); the awake
+`DigitalInOut` pull-downs alone do not survive alarm setup. Idle sleep must stay
+asleep without a button press, including while connected to USB for charging. The waking press is consumed: release all
 buttons before browsing or applying. Sleep/wake never sends a light command.
 The previous selection and last successful command survive sleep in RTC memory;
 reset, changed configuration, or invalid retained data starts with safe defaults.

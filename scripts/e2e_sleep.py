@@ -40,6 +40,7 @@ def update_display():
     global probe_preview_seen
     native_update()
     if status_text == 'Connecting' and not probe_preview_seen:
+        assert probe_cycle == 0 or isinstance(alarm.wake_alarm, alarm.time.TimeAlarm), 'Unrequested pin wake during timed probe'
         probe_preview_seen = True
         assert selected_index == probe_selection, 'Selection did not survive wake'
         assert applied_mode == modes[0]['name'], 'History did not survive wake'
@@ -118,24 +119,56 @@ def instrument(source):
     return startup + source.replace(entry, PROBE)
 
 
+def instrument_idle(source):
+    """Observe the real idle path; never synthesize input or add a wake timer."""
+    startup = """
+import microcontroller
+import supervisor
+print('__SLEEP__' + json.dumps({'event': 'boot',
+    'reset': str(microcontroller.cpu.reset_reason),
+    'wake_type': type(alarm.wake_alarm).__name__,
+    'wake_pin': str(getattr(alarm.wake_alarm, 'pin', None)),
+    'usb': supervisor.runtime.usb_connected}))
+"""
+    sleep = '    alarm.exit_and_deep_sleep_until_alarms(*alarms, preserve_dios=rails)'
+    assert sleep in source, 'Sleep entry point changed'
+    assert 'import os\n' in source, 'Boot observation entry point changed'
+    source = source.replace('import os\n', 'import os\n' + startup, 1)
+    return source.replace(sleep, """    print('__SLEEP__' + json.dumps({'event': 'idle-shutdown',
+        'rails': [rail.value for rail in rails], 'wifi_enabled': wifi.radio.enabled,
+        'brightness': display.brightness, 'refresh': display.auto_refresh,
+        'wake_pins': [str(item.pin) for item in alarms],
+        'usb': supervisor.runtime.usb_connected}))
+""" + sleep, 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port')
+    parser.add_argument('--source', type=Path, help='Probe another firmware source; restore repository firmware afterward')
     parser.add_argument('--volume', type=Path, default=Path('/Volumes/CIRCUITPY'))
     parser.add_argument('--timeout', type=float, default=100)
+    parser.add_argument('--idle-only', action='store_true', help='Require idle sleep to remain asleep without input or a wake timer')
+    parser.add_argument('--quiet-seconds', type=float, default=35, help='Minimum idle sleep observation window (at least 10 seconds)')
     args = parser.parse_args()
+    if args.quiet_seconds < 10:
+        parser.error('--quiet-seconds must be at least 10')
+    if args.idle_only and args.timeout < args.quiet_seconds + 25:
+        parser.error('--timeout must cover startup, 15s idle and the quiet window')
     port = args.port or discover_port()
-    source = (ROOT / 'code.py').read_text()
+    deployed_source = (ROOT / 'code.py').read_text()
+    source = args.source.read_text() if args.source else deployed_source
     installed = args.volume / 'code.py'
     output = ROOT / 'dist/sleep' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     output.mkdir(parents=True)
     (output / 'previous-code.py').write_bytes(installed.read_bytes())
     events = []
-    report = {'source_sha256': hashlib.sha256(source.encode()).hexdigest(), 'events': events, 'ok': False}
+    started = time.monotonic()
+    report = {'source_sha256': hashlib.sha256(source.encode()).hexdigest(), 'events': events, 'ok': False, 'idle_only': args.idle_only, 'required_quiet_seconds': args.quiet_seconds if args.idle_only else None}
     try:
         with Board(port) as board:
             board.execute('import supervisor\nsupervisor.runtime.autoreload = False')
-            installed.write_text(instrument(source))
+            installed.write_text(instrument_idle(source) if args.idle_only else instrument(source))
             os.sync()
             board.reset()
         deadline = time.monotonic() + 10
@@ -149,23 +182,44 @@ def main():
         termios.tcsetattr(fd, termios.TCSANOW, settings)
         fcntl.ioctl(fd, termios.TIOCMBIS, struct.pack('I', termios.TIOCM_DTR))
         pending = b''
+        idle_started = None
         try:
             deadline = time.monotonic() + args.timeout
             while time.monotonic() < deadline:
+                if (idle_started is not None and time.monotonic() - idle_started >= args.quiet_seconds
+                        and not select.select([fd], [], [], 0)[0]):
+                    report['quiet_seconds'] = round(time.monotonic() - idle_started, 3)
+                    report['ok'] = True
+                    print('PASS no unprovoked wake during idle sleep', flush=True)
+                    return 0
                 if not select.select([fd], [], [], 0.25)[0]:
                     continue
                 chunk = os.read(fd, 65536)
+                if not chunk:
+                    raise RuntimeError('Board disconnected during sleep observation')
                 report['serial_bytes'] = report.get('serial_bytes', 0) + len(chunk)
                 pending += chunk
                 while b'\n' in pending:
                     line, pending = pending.split(b'\n', 1)
+                    if args.idle_only and b'Traceback (most recent call last):' in line:
+                        raise RuntimeError('Firmware exception during idle observation')
                     if line.startswith(b'Traceback') or line.startswith((b'AttributeError:', b'RuntimeError:', b'ValueError:', b'AssertionError:')):
                         print('Probe exception: ' + line.decode(errors='replace').split(':')[0], flush=True)
                     marker = line.find(b'__SLEEP__')
                     if marker >= 0:
                         event = json.loads(line[marker + 9:].strip())
+                        event['elapsed_seconds'] = round(time.monotonic() - started, 3)
                         events.append(event)
                         print(json.dumps(event), flush=True)
+                        if args.idle_only and event['event'] == 'idle-shutdown':
+                            assert idle_started is None, 'Controller slept again without user input'
+                            assert event['usb'], 'Idle observation requires a continuous USB connection'
+                            assert event['rails'] == [False, False] and not event['wifi_enabled']
+                            assert event['brightness'] == 0 and not event['refresh']
+                            idle_started = time.monotonic()
+                        elif args.idle_only and event['event'] == 'boot' and idle_started is not None:
+                            report['unexpected_wake'] = event
+                            raise AssertionError('Controller woke without user input')
                         if event['event'] == 'complete':
                             previews = [item for item in events if item['event'] == 'preview']
                             shutdowns = [item for item in events if item['event'] == 'shutdown']
@@ -188,7 +242,7 @@ def main():
         try:
             with Board(port) as board:
                 board.execute('import supervisor\nsupervisor.runtime.autoreload = False')
-                installed.write_text(source)
+                installed.write_text(deployed_source)
                 os.sync()
                 board.reset()
         except Exception as error:
