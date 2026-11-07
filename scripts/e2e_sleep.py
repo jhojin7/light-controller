@@ -132,6 +132,7 @@ print('__SLEEP__' + json.dumps({'event': 'boot',
 """
     sleep = '    alarm.exit_and_deep_sleep_until_alarms(*alarms, preserve_dios=rails)'
     assert sleep in source, 'Sleep entry point changed'
+    assert 'import os\n' in source, 'Boot observation entry point changed'
     source = source.replace('import os\n', 'import os\n' + startup, 1)
     return source.replace(sleep, """    print('__SLEEP__' + json.dumps({'event': 'idle-shutdown',
         'rails': [rail.value for rail in rails], 'wifi_enabled': wifi.radio.enabled,
@@ -200,6 +201,8 @@ def main():
                 pending += chunk
                 while b'\n' in pending:
                     line, pending = pending.split(b'\n', 1)
+                    if args.idle_only and b'Traceback (most recent call last):' in line:
+                        raise RuntimeError('Firmware exception during idle observation')
                     if line.startswith(b'Traceback') or line.startswith((b'AttributeError:', b'RuntimeError:', b'ValueError:', b'AssertionError:')):
                         print('Probe exception: ' + line.decode(errors='replace').split(':')[0], flush=True)
                     marker = line.find(b'__SLEEP__')

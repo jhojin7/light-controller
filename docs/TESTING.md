@@ -243,3 +243,15 @@ suite rejects removing the alarm bias.
 
 References: [PinAlarm pull contract](https://docs.circuitpython.org/en/latest/shared-bindings/alarm/pin/index.html),
 [Espressif alarm implementation](https://github.com/adafruit/circuitpython/blob/main/ports/espressif/common-hal/alarm/pin/PinAlarm.c).
+
+Follow-up verification on 2026-11-08 (CircuitPython 10.3.1): the native idle
+observer rejected the pre-fix source after an unsolicited D2 wake 5.15 seconds
+after shutdown. The fixed source stayed asleep for 60.138 seconds without a
+button press or synthetic wake timer. A source that raises after the shutdown
+marker was rejected as a firmware exception, rather than counted as quiet sleep.
+Six host tests pass, including rejection of unsupported boot instrumentation and
+ensuring idle instrumentation adds no timer or simulated button. Reports are
+under ignored `dist/sleep/20261107T162931599094Z/` (old-source control),
+`dist/sleep/20261107T163035357871Z/` (fixed quiet window), and
+`dist/sleep/20261107T163439255631Z/` (exception control). No physical user actions
+were needed to reproduce or verify the fix.
