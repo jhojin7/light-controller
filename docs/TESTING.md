@@ -177,3 +177,25 @@ not battery-only deep sleep or low current. Physically verify D0 sleep, both
 D1/D2 wake buttons, the unchanged selection, and the absence of a light command
 on the waking press. Repeat with USB removed for actual deep sleep. Standby
 current and battery endurance require external measurement.
+
+### Verification recorded on 2026-11-08
+
+Reverse TFT Feather, CircuitPython 10.3.1: all 57 board/renderer/regression and
+read-only HA checks passed, along with four host transport tests and package
+validation. The five changed framebuffer baselines were visually inspected for
+the battery header and sleep hint. The source hash in the passing E2E report
+matches the firmware deployed to the board.
+
+The native sleep probe passed three shutdown/timer-wake cycles (D0 hold/release,
+then two inactivity sleeps). Each shutdown recorded both peripheral rails LOW,
+Wi-Fi disabled, refresh stopped, and brightness zero. All four previews restored
+selection/history and read the actual MAX17048 gauge; final Wi-Fi reconnection
+and HA authentication passed. These were USB simulated sleeps: the report
+recorded zero true deep-sleep wakes. Source-hashed reports remain under
+`dist/e2e/20261107T155913895799Z/` and `dist/sleep/20261107T155727138992Z/`.
+
+Standards and spec reviews have no remaining findings. The spec review caught
+an extra post-connection inactivity window; the fix preserves the original
+wake deadline and is covered by a regression trace. The transport now owns hard
+reset delivery and waits for queued CDC bytes before closing the descriptor.
+Battery-only current and endurance have not been measured.

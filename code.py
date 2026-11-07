@@ -558,7 +558,6 @@ def run():
             # Consume the complete waking press, including bounce/other held keys.
             if released:
                 waking = False
-                last_activity = now
         elif sleep_pressed or sleep_pending:
             if sleep_pressed_at is None and sleep_pressed:
                 sleep_pressed_at = now

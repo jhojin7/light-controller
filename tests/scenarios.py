@@ -136,6 +136,7 @@ def sleep_scenarios():
             {'time': 1.5}, {'time': 1.6},
             {'time': 2, 'cycle': True, 'visible': ['EVENING']},
         ]},
+        {'name': 'wake-release-preserves-idle-deadline', 'waking': True, 'frames': [{'time': 0}, {'time': 5}, {'time': 14.99}, {'time': 15}], 'sleeps': 1},
         {'name': 'wake-bounce-is-consumed', 'waking': True, 'frames': [
             {'time': 0.5, 'confirm': True}, {'time': 0.6},
             {'time': 0.62, 'confirm': True}, {'time': 0.8}, {'time': 0.86},
@@ -163,6 +164,10 @@ def sleep_scenarios():
         {'name': 'apply-at-idle-boundary-resets-window', 'frames': [
             {'time': 0}, {'time': 15, 'confirm': True, 'visible': ['APPLIED']},
             {'time': 15.1}, {'time': 29.99}, {'time': 30},
+        ], 'posts': [DAY], 'sleeps': 1},
+        {'name': 'request-latency-defers-idle', 'request_latency': 10, 'frames': [
+            {'time': 0}, {'time': 14, 'confirm': True, 'visible': ['APPLIED']},
+            {'time': 14.1}, {'time': 28.99}, {'time': 29},
         ], 'posts': [DAY], 'sleeps': 1},
         {'name': 'failed-request-still-sleeps', 'outcomes': [500], 'frames': [
             {'time': 0}, {'time': 1, 'confirm': True, 'visible': ['ERR 500']},

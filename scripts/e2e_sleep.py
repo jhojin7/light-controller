@@ -34,17 +34,20 @@ if microcontroller.cpu.reset_reason == microcontroller.ResetReason.DEEP_SLEEP_AL
 
 native_update = update_display
 probe_preview_seen = False
+probe_selection = min(1, len(modes) - 1)
 
 def update_display():
     global probe_preview_seen
     native_update()
     if status_text == 'Connecting' and not probe_preview_seen:
         probe_preview_seen = True
-        assert selected_index == 1, 'Selection did not survive wake'
+        assert selected_index == probe_selection, 'Selection did not survive wake'
         assert applied_mode == modes[0]['name'], 'History did not survive wake'
+        assert battery_label.text != '--%', 'Real battery gauge could not be read'
         print('__SLEEP__' + json.dumps({'event': 'preview', 'cycle': probe_cycle,
             'selected': selected_index, 'history': applied_mode,
             'brightness': display.brightness, 'refresh': display.auto_refresh,
+            'battery': battery_label.text,
             'usb': supervisor.runtime.usb_connected,
             'reset': str(microcontroller.cpu.reset_reason)}))
 
@@ -72,14 +75,15 @@ btn_cycle = ProbeButton(btn_cycle)
 btn_confirm = ProbeButton(btn_confirm)
 if probe_cycle == 0:
     alarm.sleep_memory[-3] = 0
-    selected_index = 1
+    selected_index = probe_selection
     applied_mode = modes[0]['name']
     applied_action = modes[0].get('action', 'on')
 if probe_cycle < 3:
     run()
 else:
     restore_sleep_state()
-    assert selected_index == 1 and applied_mode == modes[0]['name']
+    update_battery()
+    assert selected_index == probe_selection and applied_mode == modes[0]['name']
     status_text = 'Connecting'
     update_display()
     wifi.radio.enabled = True
@@ -92,7 +96,7 @@ else:
     update_display()
     print('__SLEEP__' + json.dumps({'event': 'complete', 'cycles': probe_cycle,
         'true_deep_sleep_wakes': alarm.sleep_memory[-3],
-        'wifi': wifi_ok, 'ha_read_only': True}))
+        'wifi': wifi_ok, 'ha_read_only': True, 'battery': battery_label.text}))
     while True:
         time.sleep(1)
 '''
@@ -110,15 +114,8 @@ def instrument(source):
         'refresh': display.auto_refresh,
         'wake_pins': [str(item.pin) for item in alarms[:2]]}))
 ''' + sleep)
-    return source.replace(entry, PROBE)
-
-
-def reset_board(board):
-    # Reload from flash after host MSC writes, rather than reuse VM/FAT caches.
-    board.execute('import microcontroller')
-    board._write(b'microcontroller.reset()\x04')
-    os.close(board.fd)
-    board.fd = None
+    startup = 'import time\ntime.sleep(3)\nprint(' + repr('__SLEEP__' + json.dumps({'event': 'start'})) + ')\n'
+    return startup + source.replace(entry, PROBE)
 
 
 def main():
@@ -140,7 +137,7 @@ def main():
             board.execute('import supervisor\nsupervisor.runtime.autoreload = False')
             installed.write_text(instrument(source))
             os.sync()
-            reset_board(board)
+            board.reset()
         deadline = time.monotonic() + 10
         time.sleep(1)
         while not Path(port).exists() and time.monotonic() < deadline:
@@ -193,7 +190,7 @@ def main():
                 board.execute('import supervisor\nsupervisor.runtime.autoreload = False')
                 installed.write_text(source)
                 os.sync()
-                reset_board(board)
+                board.reset()
         except Exception as error:
             report['ok'] = False
             report['restore_error'] = type(error).__name__

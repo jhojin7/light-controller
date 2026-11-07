@@ -76,8 +76,12 @@ class Session:
         self.outcomes = outcomes
         self.posts = []
         self.responses = []
+        self.clock = None
+        self.latency = 0
 
     def post(self, url, json, headers, timeout):
+        if self.clock:
+            self.clock.offset += self.latency
         self.posts.append({'url': url, 'body': json, 'authorization': headers.get('Authorization'), 'timeout': timeout})
         outcome = self.outcomes[min(len(self.posts) - 1, len(self.outcomes) - 1)]
         if outcome == 'raise':
@@ -184,9 +188,10 @@ class Clock:
         self.observer = observer
         self.observations = []
         self.images = []
+        self.offset = 0
 
     def monotonic(self):
-        return self.frames[self.index].get('time', (self.index+1)*0.5)
+        return self.frames[self.index].get('time', (self.index+1)*0.5) + self.offset
 
     def sleep(self, delay):
         if delay != 0.05:
@@ -352,6 +357,8 @@ def simulate(spec):
         namespace['ha_url'] = 'http://fixture-ha:8123'
         namespace['ha_token'] = '' if spec.get('missing_token') else 'fixture-token'
         clock = Clock(namespace, spec['frames'], spec.get('screenshots', False))
+        session.clock = clock
+        session.latency = spec.get('request_latency', 0)
         namespace['time'] = clock
         namespace['btn_sleep'] = Button(clock, 'sleep')
         namespace['btn_cycle'] = Button(clock, 'cycle')
