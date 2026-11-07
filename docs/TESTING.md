@@ -199,3 +199,10 @@ an extra post-connection inactivity window; the fix preserves the original
 wake deadline and is covered by a regression trace. The transport now owns hard
 reset delivery and waits for queued CDC bytes before closing the descriptor.
 Battery-only current and endurance have not been measured.
+
+The user confirmed the physical D0 hold/release, D1 wake, inactivity/D2 wake,
+no light change on waking, and visible battery percentage over USB. Battery-only
+deep sleep and current measurements remain separate checks. The observed low
+battery reading was cross-checked directly: 3.601 V and 1.980% SOC, consistent
+with the displayed integer 1%; a later read increased to 2.062% without a gauge
+reset. This is a gauge estimate rather than a battery-capacity measurement.

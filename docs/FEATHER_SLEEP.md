@@ -24,9 +24,11 @@ button; D0 + Reset enters the bootloader. Motion wake needs an external sensor.
 
 Show MAX17048 state of charge as an integer percentage in the header on every
 startup/wake and refresh after 15 seconds while awake. Clamp to 0–100%; show
-20% or below in red. A missing/busy gauge shows `--%` without blocking input or
+20% or below in red. Fractional SOC is truncated (1.98% displays as 1%). A missing/busy gauge shows `--%` without blocking input or
 sleep. Reading the SOC register does not reset the gauge or require additional
-CircuitPython libraries. USB presence alone is not a charging indication.
+CircuitPython libraries. USB presence alone is not a charging indication. The value is the gauge
+estimate, not a voltage-to-percentage lookup; do not quick-start/reset the
+gauge on every wake.
 
 ## Verification requirements
 
