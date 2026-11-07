@@ -255,3 +255,10 @@ under ignored `dist/sleep/20261107T162931599094Z/` (old-source control),
 `dist/sleep/20261107T163035357871Z/` (fixed quiet window), and
 `dist/sleep/20261107T163439255631Z/` (exception control). No physical user actions
 were needed to reproduce or verify the fix.
+
+The final fixed-source board run passed all 58 renderer/behavior/regression and
+read-only HA checks (`dist/e2e/20261107T163536673969Z/`). The timed sleep probe
+also passed three shutdown/wake cycles and final Wi-Fi/HA authentication
+(`dist/sleep/20261107T163720496047Z/`); each intended timed wake is now checked as
+a TimeAlarm. Both reports and the 60-second quiet run identify the same deployed
+firmware source. Standards and spec reviews have no remaining findings.
