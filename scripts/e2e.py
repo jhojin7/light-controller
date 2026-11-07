@@ -13,7 +13,7 @@ from board_serial import Board
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from tests.scenarios import scenarios, off_scenarios
+from tests.scenarios import scenarios, off_scenarios, sleep_scenarios, battery_scenarios
 
 
 def bmp(image):
@@ -50,7 +50,7 @@ def main():
         parser.error('--live and --skip-ha cannot be combined')
     source = (ROOT / 'code.py').read_text()
     fixture = json.loads((ROOT / 'tests/fixtures/modes.json').read_text())
-    cases = scenarios(fixture)+off_scenarios(fixture)
+    cases = scenarios(fixture)+off_scenarios(fixture)+sleep_scenarios()+battery_scenarios()
     if args.case:
         cases = [case for case in cases if case['name'] == args.case]
         if not cases:
@@ -101,6 +101,8 @@ def main():
                     ('rotation', 'display.rotation = 90', 'display.rotation = 1', cases[0]),
                     ('cycle', '(selected_index + 1) % len(modes)', 'selected_index', scenarios(fixture)[0]),
                     ('kelvin-payload', '"color_temp_kelvin": mode["kelvin"]', '"color_temp_kelvin": 1234', scenarios(fixture)[1]),
+                    ('wake-click', 'waking = alarm.wake_alarm is not None', 'waking = False', sleep_scenarios()[4]),
+                    ('idle-sleep', 'IDLE_SECONDS = 15', 'IDLE_SECONDS = 150', sleep_scenarios()[0]),
                     ('off-service', "service = 'turn_off' if is_off else 'turn_on'", "service = 'turn_on'", off_scenarios(fixture)[0]),
                 ]
                 for name, before, after, case in controls:

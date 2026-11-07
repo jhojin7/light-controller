@@ -97,6 +97,14 @@ class Board:
                 return json.loads(line[len('__E2E__'):])
         raise RuntimeError('Board probe returned no structured test result')
 
+    def reset(self):
+        """Hard reset after MSC writes; close without a second soft restart."""
+        self._write(b'import microcontroller\nmicrocontroller.reset()\x04')
+        termios.tcdrain(self.fd)
+        time.sleep(0.5)  # Let CDC deliver the reset before closing its descriptor.
+        os.close(self.fd)
+        self.fd = None
+
     def cancel_pending(self):
         """Regain raw mode after a timeout before attempting light restoration."""
         self._write(b'\x03')

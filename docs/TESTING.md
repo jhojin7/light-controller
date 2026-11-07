@@ -151,3 +151,58 @@ Use 2500 K for this device's SLEEP preset; the private local deployment source
 was corrected accordingly. No further device-settings upload was performed
 after the user requested testing stop. The user confirmed the current controller
 behavior works as expected.
+
+## Feather sleep verification
+
+`make e2e` also exercises D0 hold/release, idle deadlines, activity resets,
+consuming D1/D2 wake presses and bounce, selection/history retention, corrupt
+RTC memory, configuration changes, network failure, and request/idle boundaries.
+The panel renderer remains native; the alarm, rail outputs and panel shutdown
+commands are adapted in those deterministic scenarios. Negative controls must
+reject a leaking wake press and a broken idle deadline.
+
+`make e2e-sleep` temporarily installs an instrumented copy of the current
+firmware on `/Volumes/CIRCUITPY`. It sends no light commands. It exercises
+one D0 hold/release and two full inactivity windows using scripted logical
+inputs, with the real shutdown function, peripheral pins, alarms, Wi-Fi and
+ST7789 initialization. A temporary two-second timer wakes each cycle; both
+D1/D2 pin alarms are configured, but this does not actuate their switch contacts.
+After three wake cycles it performs an actual read-only HA authentication check.
+The runner restores repository `code.py` in `finally`; configuration, settings
+and libraries are untouched. Previous firmware and a source-hashed report are
+saved under ignored `dist/sleep/`.
+
+USB-connected results prove simulated sleep and repeated panel initialization,
+not battery-only deep sleep or low current. Physically verify D0 sleep, both
+D1/D2 wake buttons, the unchanged selection, and the absence of a light command
+on the waking press. Repeat with USB removed for actual deep sleep. Standby
+current and battery endurance require external measurement.
+
+### Verification recorded on 2026-11-08
+
+Reverse TFT Feather, CircuitPython 10.3.1: all 57 board/renderer/regression and
+read-only HA checks passed, along with four host transport tests and package
+validation. The five changed framebuffer baselines were visually inspected for
+the battery header and sleep hint. The source hash in the passing E2E report
+matches the firmware deployed to the board.
+
+The native sleep probe passed three shutdown/timer-wake cycles (D0 hold/release,
+then two inactivity sleeps). Each shutdown recorded both peripheral rails LOW,
+Wi-Fi disabled, refresh stopped, and brightness zero. All four previews restored
+selection/history and read the actual MAX17048 gauge; final Wi-Fi reconnection
+and HA authentication passed. These were USB simulated sleeps: the report
+recorded zero true deep-sleep wakes. Source-hashed reports remain under
+`dist/e2e/20261107T155913895799Z/` and `dist/sleep/20261107T155727138992Z/`.
+
+Standards and spec reviews have no remaining findings. The spec review caught
+an extra post-connection inactivity window; the fix preserves the original
+wake deadline and is covered by a regression trace. The transport now owns hard
+reset delivery and waits for queued CDC bytes before closing the descriptor.
+Battery-only current and endurance have not been measured.
+
+The user confirmed the physical D0 hold/release, D1 wake, inactivity/D2 wake,
+no light change on waking, and visible battery percentage over USB. Battery-only
+deep sleep and current measurements remain separate checks. The observed low
+battery reading was cross-checked directly: 3.601 V and 1.980% SOC, consistent
+with the displayed integer 1%; a later read increased to 2.062% without a gauge
+reset. This is a gauge estimate rather than a battery-capacity measurement.

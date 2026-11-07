@@ -14,6 +14,7 @@ class Peer:
         self.path = os.ttyname(self.slave)
         self.stop = threading.Event()
         self.reboots = 0
+        self.hard_resets = 0
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
         return self
@@ -50,7 +51,9 @@ class Peer:
                         else:
                             text = bytes(code)
                             code.clear()
-                            if text == b'hang':
+                            if b'microcontroller.reset()' in text:
+                                self.hard_resets += 1
+                            elif text == b'hang':
                                 running = True
                                 os.write(self.master, b'OK')
                             elif text == b'fail':
@@ -97,3 +100,11 @@ class SerialTransportTests(unittest.TestCase):
                     board.execute('fail')
                 self.assertNotIn('private-token', str(error.exception))
             self.assertEqual(peer.reboots, 1)
+
+    def test_hard_reset_is_delivered_without_a_second_soft_restart(self):
+        with Peer() as peer:
+            with Board(peer.path) as board:
+                board.reset()
+                self.assertIsNone(board.fd)
+            self.assertEqual(peer.hard_resets, 1)
+            self.assertEqual(peer.reboots, 0)

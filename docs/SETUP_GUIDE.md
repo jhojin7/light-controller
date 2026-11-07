@@ -24,14 +24,24 @@ Copy `code.py` and `boot.py` to the CIRCUITPY root. Create `config.json` and
 [configuration reference](CONFIGURATION.md), then copy them to the same root.
 
 Reset the board. **D1** cycles modes; **D2** applies. The large D0/BOOT button
-is not used for light control.
+controls sleep: hold it for one second, then release. The controller also
+sleeps after 15 seconds without input. D1 or D2 wakes it; release before the
+next browse/apply press. Sleep/wake does not change the light.
+
+The selected preset and last command survive sleep. Wi-Fi reconnects on wake
+with a five-second connection timeout. USB keeps CircuitPython in simulated
+sleep; disconnect USB for battery-only deep sleep. See [sleep details](FEATHER_SLEEP.md).
+
+The header shows battery percentage from the built-in MAX17048 gauge and
+refreshes every 15 seconds while awake. At 20% or below it turns red. `--%`
+means the gauge could not be read; no extra library is required.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
 | No CIRCUITPY drive | USB data cable, correct UF2 and boot mode |
-| Blank display | Reset and recopy the application and matching libraries |
+| Blank display | Press D1/D2 to wake; if still blank, Reset and check application/libraries |
 | Upside-down display | Change `display.rotation` from `90` to `270` in `code.py` |
 | Wi-Fi failure | SSID/password, 2.4 GHz network and signal; reset after corrections |
 | HA error | URL reachability, token and exact light entity ID |

@@ -106,3 +106,95 @@ def off_scenarios(fixture):
             {'confirm': True, 'visible': ['ERR 500', 'ON: DAY'], 'absent': ['LIGHT OFF', 'APPLIED']},
         ], 'posts': [DAY, off_request], 'services': ['turn_on', 'turn_off']},
     ]
+
+
+def sleep_scenarios():
+    return [
+        {'name': 'idle-sleeps-at-fifteen-seconds', 'frames': [
+            {'time': 0}, {'time': 14.99}, {'time': 15},
+        ], 'sleeps': 1},
+        {'name': 'activity-resets-idle', 'frames': [
+            {'time': 0}, {'time': 14, 'cycle': True, 'visible': ['EVENING']},
+            {'time': 14.1}, {'time': 28.99}, {'time': 29},
+        ], 'sleeps': 1},
+        {'name': 'd0-short-press-does-not-sleep', 'frames': [
+            {'time': 0}, {'time': 1, 'sleep': True}, {'time': 1.99, 'sleep': True},
+            {'time': 2}, {'time': 2.1},
+        ]},
+        {'name': 'd0-hold-waits-for-all-buttons-release', 'frames': [
+            {'time': 0}, {'time': 1, 'sleep': True, 'cycle': True, 'confirm': True},
+            {'time': 2, 'sleep': True, 'visible': ['RELEASE TO SLEEP', 'DAY']},
+            {'time': 3, 'confirm': True}, {'time': 4}, {'time': 4.1},
+        ], 'sleeps': 1},
+        {'name': 'wake-confirm-is-consumed', 'waking': True, 'frames': [
+            {'time': 0.5, 'confirm': True}, {'time': 1, 'confirm': True},
+            {'time': 1.5}, {'time': 1.6}, {'time': 2, 'confirm': True},
+        ], 'posts': [DAY]},
+        {'name': 'wake-cycle-is-consumed', 'waking': True, 'frames': [
+            {'time': 0.5, 'cycle': True, 'visible': ['DAY']},
+            {'time': 1, 'cycle': True, 'visible': ['DAY']},
+            {'time': 1.5}, {'time': 1.6},
+            {'time': 2, 'cycle': True, 'visible': ['EVENING']},
+        ]},
+        {'name': 'wake-release-preserves-idle-deadline', 'waking': True, 'frames': [{'time': 0}, {'time': 5}, {'time': 14.99}, {'time': 15}], 'sleeps': 1},
+        {'name': 'wake-bounce-is-consumed', 'waking': True, 'frames': [
+            {'time': 0.5, 'confirm': True}, {'time': 0.6},
+            {'time': 0.62, 'confirm': True}, {'time': 0.8}, {'time': 0.86},
+        ]},
+        {'name': 'wake-restores-selection-and-history', 'waking': True,
+         'retained': [1, 'DAY', 'on'], 'frames': [
+             {'visible': ['EVENING', 'ON: DAY']}, {}, {},
+         ]},
+        {'name': 'corrupt-retention-is-rejected', 'waking': True,
+         'retained': [1, 'DAY', 'on'], 'corrupt': True, 'frames': [
+             {'visible': ['DAY', 'ON: --']},
+         ]},
+        {'name': 'changed-config-clears-retention', 'waking': True,
+         'retained': [1, 'DAY', 'on'], 'changed_config': True, 'frames': [
+             {'visible': ['DAY', 'ON: --']},
+         ]},
+        {'name': 'invalid-selection-clears-retention', 'waking': True, 'retained': [999, 'DAY', 'on'], 'frames': [{'visible': ['DAY', 'ON: --']}]},
+        {'name': 'invalid-history-clears-retention', 'waking': True, 'retained': [1, 'DAY', 'off'], 'frames': [{'visible': ['DAY', 'ON: --']}]},
+        {'name': 'reset-clears-retention', 'retained': [1, 'DAY', 'on'], 'frames': [
+            {'visible': ['DAY', 'ON: --']},
+        ]},
+        {'name': 'wifi-failure-still-sleeps', 'wifi_fail': True, 'frames': [
+            {'time': 0, 'visible': ['WIFI FAIL']}, {'time': 15},
+        ], 'sleeps': 1},
+        {'name': 'apply-at-idle-boundary-resets-window', 'frames': [
+            {'time': 0}, {'time': 15, 'confirm': True, 'visible': ['APPLIED']},
+            {'time': 15.1}, {'time': 29.99}, {'time': 30},
+        ], 'posts': [DAY], 'sleeps': 1},
+        {'name': 'request-latency-defers-idle', 'request_latency': 10, 'frames': [
+            {'time': 0}, {'time': 14, 'confirm': True, 'visible': ['APPLIED']},
+            {'time': 14.1}, {'time': 28.99}, {'time': 29},
+        ], 'posts': [DAY], 'sleeps': 1},
+        {'name': 'failed-request-still-sleeps', 'outcomes': [500], 'frames': [
+            {'time': 0}, {'time': 1, 'confirm': True, 'visible': ['ERR 500']},
+            {'time': 1.1}, {'time': 15.99}, {'time': 16},
+        ], 'posts': [DAY], 'sleeps': 1},
+    ]
+
+
+
+def battery_scenarios():
+    return [
+        {'name': 'battery-percent-and-refresh', 'battery_samples': [0x4980, 0x1400], 'battery_reads': 2, 'frames': [
+            {'time': 0, 'visible': ['73%']},
+            {'time': 14, 'cycle': True, 'visible': ['73%']},
+            {'time': 14.99, 'visible': ['73%']},
+            {'time': 15, 'visible': ['20%']},
+        ]},
+        {'name': 'battery-clamps-full', 'battery_samples': [0x65ff], 'frames': [{'visible': ['100%']}]},
+        {'name': 'battery-empty', 'battery_samples': [0], 'frames': [{'visible': ['0%']}]},
+        {'name': 'battery-gauge-failure-is-nonfatal', 'battery_samples': ['fail'], 'frames': [
+            {'time': 0, 'visible': ['--%']}, {'time': 15},
+        ], 'sleeps': 1},
+        {'name': 'battery-bus-busy-is-nonfatal', 'battery_busy': True, 'frames': [
+            {'visible': ['--%']}, {'confirm': True, 'visible': ['APPLIED']},
+        ], 'posts': [DAY]},
+        {'name': 'battery-gauge-recovers', 'battery_samples': ['fail', 0x3200], 'frames': [
+            {'time': 0, 'visible': ['--%']}, {'time': 14, 'cycle': True},
+            {'time': 15, 'visible': ['50%']},
+        ]},
+    ]

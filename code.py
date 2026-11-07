@@ -5,9 +5,10 @@
 Home Assistant Light Mode Controller - Portrait UI
 Adafruit ESP32-S3 Reverse TFT Feather (5691)
 Single-mode cards with a built-in dotted bitmap font and mode icons.
-D1 = Cycle, D2 = Confirm
+D1 = Cycle / Wake, D2 = Confirm / Wake, hold D0 = Sleep
 """
 
+import alarm
 import board
 board.DISPLAY.root_group = None
 
@@ -49,7 +50,33 @@ password = os.getenv("CIRCUITPY_WIFI_PASSWORD")
 ha_url = os.getenv("HA_URL", "http://homeassistant.local:8123").rstrip("/")
 ha_token = os.getenv("HA_TOKEN", "")
 
+# GPIO7 is retained LOW during sleep, including USB simulated sleep.
+with digitalio.DigitalInOut(board.TFT_I2C_POWER) as power:
+    power.switch_to_output(value=True)
+
 display = board.DISPLAY
+if alarm.wake_alarm is not None:
+    # USB simulated deep sleep keeps the built-in display object, but its panel
+    # lost power. Restore the board's ST7789 initialization before drawing.
+    # Source: CircuitPython's adafruit_feather_esp32s3_reverse_tft/board.c.
+    for command, data, delay in (
+        (0x01, b'', 0.15), (0x11, b'', 0.12), (0x13, b'', 0),
+        (0x36, b'\x68', 0), (0xB6, b'\x0a\x82', 0),
+        (0x3A, b'\x55', 0.01), (0xB2, b'\x0c\x0c\x00\x33\x33', 0),
+        (0xB7, b'\x35', 0), (0xBB, b'\x28', 0), (0xC0, b'\x0c', 0),
+        (0xC2, b'\x01\xff', 0), (0xC3, b'\x10', 0),
+        (0xC4, b'\x20', 0), (0xC6, b'\x0f', 0), (0xD0, b'\xa4\xa1', 0),
+        (0xE0, b'\xd0\x00\x02\x07\x0a\x28\x32\x44\x42\x06\x0e\x12\x14\x17', 0),
+        (0xE1, b'\xd0\x00\x02\x07\x0a\x28\x31\x54\x47\x0e\x1c\x17\x1b\x1e', 0),
+        (0x21, b'', 0), (0x29, b'', 0.12),
+    ):
+        display.bus.send(command, data)
+        if delay:
+            time.sleep(delay)
+    # Force MADCTL to be resent even when the simulated wake retains rotation.
+    display.rotation = 0
+display.auto_refresh = True
+display.brightness = 1.0
 # CircuitPython uses degrees, rather than Arduino's 0-3 rotation values.
 display.rotation = 90  # portrait (135 x 240); use 270 for the other orientation
 display.root_group = None
@@ -235,6 +262,7 @@ def small_label(text, y, color=MUTED, center_x=None):
 
 
 header_label = small_label('LIGHT', 8, WHITE, 23)
+battery_label = small_label('--%', 8, center_x=83)
 mode_title = DotText(display.width // 2, 80, display.width - 8)
 brightness_text = DotText(34, 126, 54, max_pitch=2, min_pitch=1)
 kelvin_text = DotText(101, 126, 59, max_pitch=2, min_pitch=1)
@@ -243,9 +271,10 @@ for item in (mode_title, brightness_text, kelvin_text, page_text):
     splash.append(item)
 brightness_caption = small_label('BRIGHT', 145, center_x=34)
 kelvin_caption = small_label('KELVIN', 145, center_x=101)
-status_label = small_label('READY', 194)
-applied_label = small_label('ON: --', 208)
-help_label = small_label('D1 NEXT  D2 SET', 224)
+status_label = small_label('READY', 188)
+applied_label = small_label('ON: --', 201)
+help_label = small_label('D1 NEXT  D2 SET', 214)
+sleep_hint = small_label('D0 HOLD TO SLEEP', 227)
 
 # Subtle rules keep the single-mode card and navigation visually separate.
 rule_bitmap = displayio.Bitmap(display.width - 2 * PADDING, 1, 1)
@@ -279,6 +308,8 @@ def mode_style(mode):
 
 
 # Buttons
+btn_sleep = digitalio.DigitalInOut(board.D0)
+btn_sleep.switch_to_input(pull=digitalio.Pull.UP)
 btn_cycle = digitalio.DigitalInOut(board.D1)
 btn_cycle.switch_to_input(pull=digitalio.Pull.DOWN)
 btn_confirm = digitalio.DigitalInOut(board.D2)
@@ -323,6 +354,30 @@ def update_display():
     finally:
         display.auto_refresh = auto_refresh
 
+# MAX17048 SOC register is big-endian, with 1/256 percent per bit. Reading
+# directly avoids resetting the gauge or adding new on-board dependencies.
+# https://github.com/adafruit/Adafruit_CircuitPython_MAX1704x
+battery_bus = board.I2C()
+
+
+def update_battery():
+    if not battery_bus.try_lock():
+        battery_label.text = '--%'
+        battery_label.color = MUTED
+        return
+    try:
+        data = bytearray(2)
+        battery_bus.writeto_then_readfrom(0x36, b'\x04', data)
+        percent = min(100, data[0])
+        battery_label.text = str(percent) + '%'
+        battery_label.color = RED if percent <= 20 else MUTED
+    except OSError:
+        battery_label.text = '--%'
+        battery_label.color = MUTED
+    finally:
+        battery_bus.unlock()
+
+
 def connect_wifi():
     global wifi_ok, requests, status_text
     if not ssid or not password:
@@ -330,7 +385,7 @@ def connect_wifi():
         update_display()
         return False
     try:
-        wifi.radio.connect(ssid, password)
+        wifi.radio.connect(ssid, password, timeout=5)
         pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
         ssl_context = adafruit_connection_manager.get_radio_ssl_context(wifi.radio)
         requests = adafruit_requests.Session(pool, ssl_context)
@@ -377,29 +432,155 @@ def apply_mode():
         print(e)
     update_display()
 
+IDLE_SECONDS = 15
+SLEEP_HOLD_SECONDS = 1.0
+RELEASE_SECONDS = 0.05
+
+
+def state_checksum(data):
+    value = 2166136261
+    for byte in data:
+        value = ((value ^ byte) * 16777619) & 0xffffffff
+    return value
+
+
+def save_sleep_state():
+    memory = alarm.sleep_memory
+    memory[:4] = b'\0\0\0\0'
+    payload = json.dumps([
+        state_checksum(json.dumps(config).encode()), selected_index,
+        applied_mode, applied_action,
+    ]).encode()
+    if len(payload) + 10 > len(memory):
+        return
+    memory[4:6] = len(payload).to_bytes(2, 'little')
+    memory[6:10] = state_checksum(payload).to_bytes(4, 'little')
+    memory[10:10 + len(payload)] = payload
+    memory[:4] = b'LCS1'  # Commit only after the complete record is written.
+
+
+def restore_sleep_state():
+    global selected_index, applied_mode, applied_action
+    memory = alarm.sleep_memory
+    try:
+        if alarm.wake_alarm is None or bytes(memory[:4]) != b'LCS1':
+            return
+        size = int.from_bytes(memory[4:6], 'little')
+        if not 0 < size <= len(memory) - 10:
+            return
+        payload = bytes(memory[10:10 + size])
+        if state_checksum(payload) != int.from_bytes(memory[6:10], 'little'):
+            return
+        fingerprint, index, previous, action = json.loads(payload.decode())
+        if fingerprint != state_checksum(json.dumps(config).encode()):
+            return
+        if type(index) is not int or not 0 <= index < len(modes):
+            return
+        if not (previous == '--' and action is None) and not any(
+            mode['name'] == previous and mode.get('action', 'on') == action
+            for mode in modes
+        ):
+            return
+        selected_index, applied_mode, applied_action = index, previous, action
+    except (ValueError, TypeError, KeyError):
+        pass
+    finally:
+        memory[:4] = b'\0\0\0\0'  # Reset/reload must not reuse old history.
+
+
+def sleep_controller():
+    """Called only after button release and after any request has completed."""
+    global requests, wifi_ok
+    save_sleep_state()
+    requests = None
+    adafruit_connection_manager.connection_manager_close_all()
+    wifi.radio.enabled = False
+    wifi_ok = False
+    display.auto_refresh = False
+    display.brightness = 0
+    display.bus.send(0x28, b'')  # Display off, then panel sleep before rail off.
+    display.bus.send(0x10, b'')
+    time.sleep(0.12)
+    btn_sleep.deinit()
+    btn_cycle.deinit()
+    btn_confirm.deinit()
+    rails = []
+    for pin in (board.TFT_I2C_POWER, board.NEOPIXEL_POWER):
+        rail = digitalio.DigitalInOut(pin)
+        rail.switch_to_output(value=False)
+        rails.append(rail)
+    alarms = [alarm.pin.PinAlarm(pin=pin, value=True) for pin in (board.D1, board.D2)]
+    # GPIO7's board reset default is HIGH. Preserve LOW across the VM teardown.
+    alarm.exit_and_deep_sleep_until_alarms(*alarms, preserve_dios=rails)
+
+
 def run():
     """Start the controller; tests can supply external buttons, clock and network."""
     global selected_index, status_text
+    restore_sleep_state()
+    update_battery()
+    # Draw the retained selection before the bounded Wi-Fi connection attempt.
     status_text = "Connecting"
     update_display()
+    awake_since = time.monotonic()
+    wifi.radio.enabled = True
     connect_wifi()
     status_text = "Ready" if wifi_ok else "WiFi fail"
     update_display()
 
     last_cycle = 0
     last_confirm = 0
+    last_activity = awake_since
+    battery_read_at = awake_since
+    sleep_pressed_at = None
+    sleep_pending = False
+    release_since = None
+    waking = alarm.wake_alarm is not None
     DEBOUNCE = 0.3
 
     while True:
         now = time.monotonic()
-        if btn_cycle.value and (now - last_cycle) > DEBOUNCE:
-            selected_index = (selected_index + 1) % len(modes)
-            status_text = "Selected"
-            last_cycle = now
-            update_display()
-        if btn_confirm.value and (now - last_confirm) > DEBOUNCE:
-            apply_mode()
-            last_confirm = now
+        if now - battery_read_at >= 15:
+            update_battery()
+            battery_read_at = now
+        cycle = btn_cycle.value
+        confirm = btn_confirm.value
+        sleep_pressed = not btn_sleep.value  # D0 is active LOW.
+        any_pressed = cycle or confirm or sleep_pressed
+        if any_pressed:
+            last_activity = now
+            release_since = None
+        elif release_since is None:
+            release_since = now
+        released = release_since is not None and now - release_since >= RELEASE_SECONDS
+
+        if waking:
+            # Consume the complete waking press, including bounce/other held keys.
+            if released:
+                waking = False
+        elif sleep_pressed or sleep_pending:
+            if sleep_pressed_at is None and sleep_pressed:
+                sleep_pressed_at = now
+            if sleep_pressed and now - sleep_pressed_at >= SLEEP_HOLD_SECONDS:
+                if not sleep_pending:
+                    status_text = "Release to sleep"
+                    update_display()
+                sleep_pending = True
+            if sleep_pending and released:
+                sleep_controller()
+        else:
+            sleep_pressed_at = None
+            if cycle and (now - last_cycle) > DEBOUNCE:
+                selected_index = (selected_index + 1) % len(modes)
+                status_text = "Selected"
+                last_cycle = now
+                update_display()
+            if confirm and (now - last_confirm) > DEBOUNCE:
+                apply_mode()
+                last_confirm = time.monotonic()
+                last_activity = last_confirm  # Never expire while sending a command.
+            if released and now - last_activity >= IDLE_SECONDS:
+                sleep_controller()
         time.sleep(0.05)
 
 
