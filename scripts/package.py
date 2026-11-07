@@ -17,6 +17,7 @@ FILES = (
     "docs/CONFIGURATION.md",
     "docs/FEATURE_MAP.md",
     "docs/TESTING.md",
+    "docs/FEATHER_SLEEP.md",
     "assets/ui-preview.png",
 )
 

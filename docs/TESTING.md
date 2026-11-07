@@ -151,3 +151,29 @@ Use 2500 K for this device's SLEEP preset; the private local deployment source
 was corrected accordingly. No further device-settings upload was performed
 after the user requested testing stop. The user confirmed the current controller
 behavior works as expected.
+
+## Feather sleep verification
+
+`make e2e` also exercises D0 hold/release, idle deadlines, activity resets,
+consuming D1/D2 wake presses and bounce, selection/history retention, corrupt
+RTC memory, configuration changes, network failure, and request/idle boundaries.
+The panel renderer remains native; the alarm, rail outputs and panel shutdown
+commands are adapted in those deterministic scenarios. Negative controls must
+reject a leaking wake press and a broken idle deadline.
+
+`make e2e-sleep` temporarily installs an instrumented copy of the current
+firmware on `/Volumes/CIRCUITPY`. It sends no light commands. It exercises
+one D0 hold/release and two full inactivity windows using scripted logical
+inputs, with the real shutdown function, peripheral pins, alarms, Wi-Fi and
+ST7789 initialization. A temporary two-second timer wakes each cycle; both
+D1/D2 pin alarms are configured, but this does not actuate their switch contacts.
+After three wake cycles it performs an actual read-only HA authentication check.
+The runner restores repository `code.py` in `finally`; configuration, settings
+and libraries are untouched. Previous firmware and a source-hashed report are
+saved under ignored `dist/sleep/`.
+
+USB-connected results prove simulated sleep and repeated panel initialization,
+not battery-only deep sleep or low current. Physically verify D0 sleep, both
+D1/D2 wake buttons, the unchanged selection, and the absence of a light command
+on the waking press. Repeat with USB removed for actual deep sleep. Standby
+current and battery endurance require external measurement.

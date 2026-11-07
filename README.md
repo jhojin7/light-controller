@@ -8,9 +8,13 @@ presets. Select a mode on the screen, then apply it to send it.
 | Adafruit ESP32-S3 Reverse TFT Feather (5691) | CircuitPython, repository root | D1 / D2 | [Feather guide](docs/SETUP_GUIDE.md) |
 | M5Stack StickS3 (K150) | Arduino C++, `sticks3/` | Tap A / hold A; B sleep/wake | [StickS3 guide](sticks3/README.md) |
 
+On the Feather, hold D0 for one second and release to sleep, or leave it idle
+for 15 seconds. D1/D2 wakes it; the first press only wakes. The selection and
+last command survive sleep. See [Feather sleep](docs/FEATHER_SLEEP.md).
+
 Both versions have a 135 × 240 portrait display with dotted headings, mode icons,
-brightness, color temperature and a page counter. StickS3 also shows battery
-percentage, charging state and a low-battery indicator.
+brightness, color temperature, a page counter and battery percentage with
+a low-battery color. StickS3 also shows charging state.
 Pick up the StickS3 or press B to wake it. It reconnects to Wi-Fi automatically
 while you browse and sleeps after inactivity. See its guide for timing and controls.
 

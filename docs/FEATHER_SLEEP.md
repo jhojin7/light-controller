@@ -20,6 +20,14 @@ and NeoPixel power. The display must initialize correctly on every wake,
 including CircuitPython's USB-connected simulated sleep. D0 remains the BOOT
 button; D0 + Reset enters the bootloader. Motion wake needs an external sensor.
 
+## Battery display
+
+Show MAX17048 state of charge as an integer percentage in the header on every
+startup/wake and refresh after 15 seconds while awake. Clamp to 0–100%; show
+20% or below in red. A missing/busy gauge shows `--%` without blocking input or
+sleep. Reading the SOC register does not reset the gauge or require additional
+CircuitPython libraries. USB presence alone is not a charging indication.
+
 ## Verification requirements
 
 - Host and board tests exercise hold/release, idle deadlines, activity reset,

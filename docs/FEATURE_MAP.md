@@ -22,20 +22,20 @@ external HA state changes. See [configuration](CONFIGURATION.md) and
 | Area | Feather | StickS3 |
 | --- | --- | --- |
 | Runtime | CircuitPython | Arduino / PlatformIO |
-| Buttons | D1 next, D2 apply; held inputs repeat after 300 ms | A tap next, A hold 700 ms apply once; B sleep/wake; 30 ms debounce |
-| Simultaneous input | Selection changes before apply | B wins; an already-started apply finishes before sleeping |
+| Buttons | D1 next, D2 apply; hold D0 1 s then release to sleep; D1/D2 wake; held next/apply repeat after 300 ms | A tap next, A hold 700 ms apply once; B sleep/wake; 30 ms debounce |
+| Simultaneous input | D0 suppresses navigation/apply; otherwise selection changes before apply | B wins; an already-started apply finishes before sleeping |
 | Display rotation | 90°; opposite 270° | 0; opposite 2 |
 | Small captions | CircuitPython terminal font | Built-in uppercase bitmap font |
-| Battery indicator | None | Percentage, charging, low-battery color; refreshes every 15 s |
+| Battery indicator | MAX17048 percentage; low-battery color; refreshes every 15 s | Percentage, charging, low-battery color; refreshes every 15 s |
 | Backlight | Board defaults | 20 kHz PWM, brightness 128/255 |
-| Wi-Fi | Connects at startup; no reconnect | Connect automatically on wake; remain enabled while awake; off during sleep |
+| Wi-Fi | Connects on startup/wake (5 s timeout); off during sleep | Connect automatically on wake; remain enabled while awake; off during sleep |
 | Network responsiveness | Requests block input | HTTP runs on a worker; UI and B remain responsive during connection/requests |
-| Sleep/wake | None | ESP deep sleep; motion or B wakes; selection/history retained in RTC memory |
-| Inactivity | None | Wake screen 3 s; A interaction starts 15 s browsing window; movement does not extend it |
-| Result timing | Remains displayed | Success 3 s, error 8 s; A interacts, B sleeps |
+| Sleep/wake | ESP deep sleep; D1/D2 wake; selection/history retained in RTC memory | ESP deep sleep; motion or B wakes; selection/history retained in RTC memory |
+| Inactivity | 15 s after last input or completed request | Wake screen 3 s; A interaction starts 15 s browsing window; movement does not extend it |
+| Result timing | Remains until input or inactivity sleep | Success 3 s, error 8 s; A interacts, B sleeps |
 | Settings | Read TOML directly | Provisioner converts TOML to LittleFS JSON |
 | Invalid structure | Empty modes show ERROR; other missing fields can fail | ERROR card; requests disabled |
 | Verification | CircuitPython raw REPL and displayio inspection | Native C++ harness and serial JSON commands |
 
 The Feather can report NO TOKEN when a network session is missing. The Wi-Fi
-icon represents startup state on Feather and current connection state on StickS3.
+icon represents the last connection attempt on Feather and current connection state on StickS3.

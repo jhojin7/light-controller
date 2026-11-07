@@ -17,7 +17,7 @@ def smoke():
     pins = []
     try:
         exec(SOURCE, namespace)
-        pins = [namespace['btn_cycle'], namespace['btn_confirm']]
+        pins = [namespace['btn_cycle'], namespace['btn_confirm'], namespace['btn_sleep']]
         assert callable(namespace.get('run')), 'Application needs an import-safe run() entry point'
         return {'ok': True, 'name': 'entry-point'}
     except AssertionError as error:
@@ -36,10 +36,12 @@ class StopFrames(Exception):
 
 
 class Radio:
+    enabled = True
+
     def __init__(self, fail=False):
         self.fail = fail
 
-    def connect(self, *_):
+    def connect(self, *_, **kwargs):
         if self.fail:
             raise OSError('simulated network failure')
 
@@ -50,6 +52,9 @@ class Wifi:
 
 
 class Manager:
+    def connection_manager_close_all(self):
+        pass
+
     def get_radio_socketpool(self, _):
         return None
 
@@ -183,7 +188,9 @@ class Clock:
     def monotonic(self):
         return self.frames[self.index].get('time', (self.index+1)*0.5)
 
-    def sleep(self, _):
+    def sleep(self, delay):
+        if delay != 0.05:
+            return
         frame = self.frames[self.index]
         texts = assert_layout(self.namespace)
         for expected in frame.get('visible', []):
@@ -205,9 +212,93 @@ class Button:
         self.clock = clock
         self.key = key
 
+    def deinit(self):
+        pass
+
     @property
     def value(self):
-        return self.clock.frames[self.clock.index].get(self.key, False)
+        frame = self.clock.frames[self.clock.index]
+        return not frame.get('sleep', False) if self.key == 'sleep' else frame.get(self.key, False)
+
+
+class BatteryBus:
+    def __init__(self, samples=None, busy=False):
+        self.samples = list(samples or [0x4980])  # 73.5 percent
+        self.busy = busy
+        self.locked = False
+        self.reads = 0
+
+    def try_lock(self):
+        if self.busy:
+            return False
+        assert not self.locked, 'Battery I2C lock leaked'
+        self.locked = True
+        return True
+
+    def writeto_then_readfrom(self, address, register, data):
+        assert address == 0x36 and register == b'\x04', 'Wrong battery register'
+        sample = self.samples[min(self.reads, len(self.samples)-1)]
+        self.reads += 1
+        if sample == 'fail':
+            raise OSError('simulated absent gauge')
+        data[0], data[1] = sample >> 8, sample & 255
+
+    def unlock(self):
+        self.locked = False
+
+
+class SleepRequested(Exception):
+    pass
+
+
+class Alarm:
+    def __init__(self, waking=False, memory=None):
+        self.wake_alarm = object() if waking else None
+        self.sleep_memory = bytearray(4096) if memory is None else memory
+        self.pin = self
+        self.calls = []
+
+    def PinAlarm(self, pin, value):
+        return (str(pin), value)
+
+    def exit_and_deep_sleep_until_alarms(self, *alarms, preserve_dios=()):
+        assert len(alarms) == 2 and all(item[1] for item in alarms), 'Need two active-high wake alarms'
+        assert all(not rail.value for rail in preserve_dios), 'Peripheral rail was left on'
+        self.calls.append({'wake_pins': [item[0] for item in alarms], 'rails_off': len(preserve_dios)})
+        raise SleepRequested()
+
+
+class Output:
+    def __init__(self, pin):
+        self.pin = pin
+        self.value = None
+
+    def switch_to_output(self, value):
+        self.value = value
+
+
+class Digital:
+    DigitalInOut = Output
+
+
+class Bus:
+    def __init__(self):
+        self.commands = []
+
+    def send(self, command, data):
+        self.commands.append(command)
+
+
+class Screen:
+    """Keep the native renderer; adapt only panel power/commands during sleep."""
+    def __init__(self, native):
+        self.native = native
+        self.bus = Bus()
+        self.brightness = 1.0
+        self.auto_refresh = True
+
+    def __getattr__(self, name):
+        return getattr(self.native, name)
 
 
 def load_program(config):
@@ -238,7 +329,20 @@ def simulate(spec):
     pins = []
     try:
         namespace = load_program(spec.get('config', FIXTURE))
-        pins = [namespace['btn_cycle'], namespace['btn_confirm']]
+        pins = [namespace['btn_cycle'], namespace['btn_confirm'], namespace['btn_sleep']]
+        namespace['battery_bus'] = BatteryBus(spec.get('battery_samples'), spec.get('battery_busy', False))
+        namespace['alarm'] = Alarm(spec.get('waking', False))
+        if spec.get('retained'):
+            index, previous, action = spec['retained']
+            namespace['selected_index'], namespace['applied_mode'], namespace['applied_action'] = index, previous, action
+            namespace['save_sleep_state']()
+            namespace['selected_index'], namespace['applied_mode'], namespace['applied_action'] = 0, '--', None
+            if spec.get('corrupt'):
+                namespace['alarm'].sleep_memory[10] ^= 1
+            if spec.get('changed_config'):
+                namespace['config']['entity_id'] = 'light.different'
+        namespace['display'] = Screen(namespace['display'])
+        namespace['digitalio'] = Digital()
         session = Session(spec.get('outcomes', [200]))
         namespace['wifi'] = Wifi(spec.get('wifi_fail', False))
         namespace['adafruit_connection_manager'] = Manager()
@@ -249,12 +353,23 @@ def simulate(spec):
         namespace['ha_token'] = '' if spec.get('missing_token') else 'fixture-token'
         clock = Clock(namespace, spec['frames'], spec.get('screenshots', False))
         namespace['time'] = clock
+        namespace['btn_sleep'] = Button(clock, 'sleep')
         namespace['btn_cycle'] = Button(clock, 'cycle')
         namespace['btn_confirm'] = Button(clock, 'confirm')
         try:
             namespace['run']()
-        except StopFrames:
+        except (StopFrames, SleepRequested):
             pass
+        assert not namespace['battery_bus'].locked, 'I2C lock leaked'
+        if 'battery_reads' in spec:
+            assert namespace['battery_bus'].reads == spec['battery_reads'], 'Battery refresh interval changed'
+        sleeps = namespace['alarm'].calls
+        assert len(sleeps) == spec.get('sleeps', 0), 'Unexpected sleep count'
+        if sleeps:
+            assert not namespace['wifi'].radio.enabled, 'WiFi left enabled during sleep'
+            assert namespace['display'].brightness == 0, 'Backlight left on'
+            assert not namespace['display'].auto_refresh, 'Display still refreshing'
+            assert namespace['display'].bus.commands == [0x28, 0x10], 'Panel not put to sleep'
         expected = spec.get('posts', [])
         assert [post['body'] for post in session.posts] == expected, 'Unexpected HA request payload or duplicate requests'
         for index, post in enumerate(session.posts):
@@ -262,7 +377,7 @@ def simulate(spec):
             assert post['url'] == 'http://fixture-ha:8123/api/services/light/'+service, 'Wrong service endpoint'
             assert post['authorization'] == 'Bearer fixture-token', 'Missing Bearer authorization'
         assert all(response.closed for response in session.responses), 'HTTP response was not closed'
-        return {'ok': True, 'name': spec['name'], 'frames': len(clock.observations), 'images': clock.images}
+        return {'ok': True, 'name': spec['name'], 'frames': len(clock.observations), 'images': clock.images, 'sleeps': sleeps}
     except AssertionError as error:
         return {'ok': False, 'name': spec['name'], 'reason': str(error)}
     except Exception as error:
@@ -301,10 +416,12 @@ def live_start(scene_id=None):
     with open('/config.json') as file:
         config = json.load(file)
     namespace = load_program(config)
-    LIVE = {'namespace': namespace, 'pins': [namespace['btn_cycle'], namespace['btn_confirm']], 'scene': None, 'index': 0, 'config': config}
+    LIVE = {'namespace': namespace, 'pins': [namespace['btn_cycle'], namespace['btn_confirm'], namespace['btn_sleep']], 'scene': None, 'index': 0, 'config': config}
     try:
+        namespace['alarm'] = Alarm()
         clock = Clock(namespace, [{}])
         namespace['time'] = clock
+        namespace['btn_sleep'] = Button(clock, 'sleep')
         namespace['btn_cycle'] = Button(clock, 'cycle')
         namespace['btn_confirm'] = Button(clock, 'confirm')
         try:
@@ -379,6 +496,7 @@ def live_apply(index):
     try:
         clock = Clock(namespace, frames)
         namespace['time'] = clock
+        namespace['btn_sleep'] = Button(clock, 'sleep')
         namespace['btn_cycle'] = Button(clock, 'cycle')
         namespace['btn_confirm'] = Button(clock, 'confirm')
         try:
