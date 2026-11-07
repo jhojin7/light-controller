@@ -102,6 +102,7 @@ def main():
                     ('cycle', '(selected_index + 1) % len(modes)', 'selected_index', scenarios(fixture)[0]),
                     ('kelvin-payload', '"color_temp_kelvin": mode["kelvin"]', '"color_temp_kelvin": 1234', scenarios(fixture)[1]),
                     ('wake-click', 'waking = alarm.wake_alarm is not None', 'waking = False', sleep_scenarios()[4]),
+                    ('wake-input-bias', 'value=True, pull=True', 'value=True', sleep_scenarios()[0]),
                     ('idle-sleep', 'IDLE_SECONDS = 15', 'IDLE_SECONDS = 150', sleep_scenarios()[0]),
                     ('off-service', "service = 'turn_off' if is_off else 'turn_on'", "service = 'turn_on'", off_scenarios(fixture)[0]),
                 ]

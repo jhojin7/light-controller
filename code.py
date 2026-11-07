@@ -509,7 +509,9 @@ def sleep_controller():
         rail = digitalio.DigitalInOut(pin)
         rail.switch_to_output(value=False)
         rails.append(rail)
-    alarms = [alarm.pin.PinAlarm(pin=pin, value=True) for pin in (board.D1, board.D2)]
+    # PinAlarm defaults to floating inputs, replacing the awake pull-downs.
+    # Keep both active-high wake buttons LOW after their DigitalInOuts deinit.
+    alarms = [alarm.pin.PinAlarm(pin=pin, value=True, pull=True) for pin in (board.D1, board.D2)]
     # GPIO7's board reset default is HIGH. Preserve LOW across the VM teardown.
     alarm.exit_and_deep_sleep_until_alarms(*alarms, preserve_dios=rails)
 

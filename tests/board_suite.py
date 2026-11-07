@@ -263,11 +263,12 @@ class Alarm:
         self.pin = self
         self.calls = []
 
-    def PinAlarm(self, pin, value):
-        return (str(pin), value)
+    def PinAlarm(self, pin, value, pull=False):
+        return (str(pin), value, pull)
 
     def exit_and_deep_sleep_until_alarms(self, *alarms, preserve_dios=()):
         assert len(alarms) == 2 and all(item[1] for item in alarms), 'Need two active-high wake alarms'
+        assert all(item[2] for item in alarms), 'Wake inputs lost their inactive bias during sleep'
         assert all(not rail.value for rail in preserve_dios), 'Peripheral rail was left on'
         self.calls.append({'wake_pins': [item[0] for item in alarms], 'rails_off': len(preserve_dios)})
         raise SleepRequested()

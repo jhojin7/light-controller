@@ -206,3 +206,40 @@ deep sleep and current measurements remain separate checks. The observed low
 battery reading was cross-checked directly: 3.601 V and 1.980% SOC, consistent
 with the displayed integer 1%; a later read increased to 2.062% without a gauge
 reset. This is a gauge estimate rather than a battery-capacity measurement.
+
+## Idle sleep regression while charging
+
+Run `make e2e-idle` on the connected Feather without touching its buttons. This
+uses the real firmware idle loop and shutdown path, with no scripted input and
+no added wake timer. After an observed shutdown it requires 35 uninterrupted
+seconds with no new boot or second shutdown. A USB disconnect fails the test;
+an absent serial stream alone is not treated as proof of quiet sleep. The
+instrumented firmware and original sleep probe share the same `finally`
+restoration path. Settings, configuration and `boot.py` remain untouched.
+
+To exercise the hardware regression against the pre-fix source:
+
+```sh
+git show ae2f68c:code.py > /tmp/feather-before-wake-fix.py
+python3 scripts/e2e_sleep.py --idle-only --source /tmp/feather-before-wake-fix.py
+# Must fail with an unrequested D2 PinAlarm wake. Repository firmware is restored.
+make e2e-idle
+# Must pass without a wake during the quiet window.
+```
+
+`--source` affects only the temporary probe; repository `code.py` is installed
+again on exit. `--quiet-seconds` can extend observation (minimum 10 seconds);
+raise `--timeout` to cover startup, the 15-second idle window and observation.
+This remains a USB simulated-sleep check, not a battery-current measurement.
+
+The pre-fix firmware reproduced three unsolicited D2 wakes about 5.3 seconds
+after sleep, with all button levels inactive beforehand. Alarm setup defaults
+to floating inputs, replacing the pull-downs used while awake. Explicit
+`PinAlarm(value=True, pull=True)` retains the inactive LOW bias for both wake
+buttons. The earlier three-cycle probe added a two-second timer, so it woke
+before this delayed fault could appear; it was not a quiet-idle acceptance test.
+The timed probe now also checks its wake cause, and the deterministic board
+suite rejects removing the alarm bias.
+
+References: [PinAlarm pull contract](https://docs.circuitpython.org/en/latest/shared-bindings/alarm/pin/index.html),
+[Espressif alarm implementation](https://github.com/adafruit/circuitpython/blob/main/ports/espressif/common-hal/alarm/pin/PinAlarm.c).
